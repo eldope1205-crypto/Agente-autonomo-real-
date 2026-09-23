@@ -1,5 +1,9 @@
 import crypto from 'crypto';
-import { Opportunity, Task, PlanStep, TaskStatus } from '../../../src/types/index.js';
+import {
+  Opportunity,
+  Task,
+  PlanStep,
+} from '../../../src/types/index.js';
 import { Database } from '../../db/database.js';
 
 export class TaskManager {
@@ -14,6 +18,7 @@ export class TaskManager {
     if (!TaskManager.instance) {
       TaskManager.instance = new TaskManager();
     }
+
     return TaskManager.instance;
   }
 
@@ -22,71 +27,258 @@ export class TaskManager {
   }
 
   public getTask(id: string): Task | undefined {
-    return this.db.getState().tasks.find((t) => t.id === id);
+    return this.db
+      .getState()
+      .tasks
+      .find((task) => task.id === id);
   }
 
   /**
-   * Plans a task from an analyzed opportunity
+   * Comprueba si ya existe una tarea para una oportunidad.
    */
-  public planTaskFromOpportunity(opportunity: Opportunity): Task {
-    const taskId = `task-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
+  private taskAlreadyExists(
+    opportunityId: string
+  ): boolean {
+    return this.db
+      .getState()
+      .tasks
+      .some(
+        (task) =>
+          task.opportunityId === opportunityId &&
+          task.status !== 'CANCELLED' &&
+          task.status !== 'FAILED'
+      );
+  }
 
-    // Determine primary capability
-    let primaryCap = 'TEXT_WRITING';
-    let primaryTool = 'llm_worker';
-    const desc = (opportunity.title + ' ' + opportunity.description).toLowerCase();
+  /**
+   * Determina automáticamente el tipo de trabajo.
+   */
+  private detectTaskType(
+    opportunity: Opportunity
+  ): {
+    capability: string;
+    tool: string;
+    title: string;
+  } {
+    const text = [
+      opportunity.title,
+      opportunity.description,
+      ...(opportunity.requirements || []),
+      opportunity.category,
+    ]
+      .join(' ')
+      .toLowerCase();
 
-    if (desc.includes('código') || desc.includes('python') || desc.includes('typescript') || desc.includes('script') || desc.includes('dev')) {
-      primaryCap = 'CODE_GENERATION';
-      primaryTool = 'llm_worker';
-    } else if (desc.includes('traducción') || desc.includes('translate')) {
-      primaryCap = 'TRANSLATION';
-      primaryTool = 'llm_worker';
-    } else if (desc.includes('seo') || desc.includes('posicionamiento')) {
-      primaryCap = 'SEO_RESEARCH';
-      primaryTool = 'http_fetcher';
-    } else if (desc.includes('datos') || desc.includes('data') || desc.includes('estadística')) {
-      primaryCap = 'DATA_ANALYSIS';
-      primaryTool = 'llm_worker';
+    if (
+      text.includes('typescript') ||
+      text.includes('javascript') ||
+      text.includes('python') ||
+      text.includes('programación') ||
+      text.includes('programacion') ||
+      text.includes('código') ||
+      text.includes('codigo') ||
+      text.includes('script') ||
+      text.includes('software') ||
+      text.includes('desarrollo')
+    ) {
+      return {
+        capability: 'CODE_GENERATION',
+        tool: 'llm_worker',
+        title: 'Desarrollo de solución técnica',
+      };
     }
+
+    if (
+      text.includes('traducción') ||
+      text.includes('traduccion') ||
+      text.includes('translate')
+    ) {
+      return {
+        capability: 'TRANSLATION',
+        tool: 'llm_worker',
+        title: 'Preparación de traducción',
+      };
+    }
+
+    if (
+      text.includes('seo') ||
+      text.includes('posicionamiento') ||
+      text.includes('palabras clave')
+    ) {
+      return {
+        capability: 'SEO_RESEARCH',
+        tool: 'http_fetcher',
+        title: 'Investigación y análisis SEO',
+      };
+    }
+
+    if (
+      text.includes('datos') ||
+      text.includes('data') ||
+      text.includes('estadística') ||
+      text.includes('estadistica') ||
+      text.includes('csv') ||
+      text.includes('excel')
+    ) {
+      return {
+        capability: 'DATA_ANALYSIS',
+        tool: 'llm_worker',
+        title: 'Análisis y procesamiento de datos',
+      };
+    }
+
+    if (
+      text.includes('contenido') ||
+      text.includes('artículo') ||
+      text.includes('articulo') ||
+      text.includes('redacción') ||
+      text.includes('redaccion') ||
+      text.includes('blog') ||
+      text.includes('texto')
+    ) {
+      return {
+        capability: 'CONTENT_GENERATION',
+        tool: 'llm_worker',
+        title: 'Creación de contenido',
+      };
+    }
+
+    return {
+      capability: 'TEXT_WRITING',
+      tool: 'llm_worker',
+      title: 'Producción de contenido digital',
+    };
+  }
+
+  /**
+   * Detecta si la oportunidad requiere intervención humana.
+   */
+  private detectHumanRequirement(
+    opportunity: Opportunity
+  ): {
+    needed: boolean;
+    reason?: string;
+    whatUserMustDo?: string;
+    whatHappensNext?: string;
+  } {
+    const text = [
+      opportunity.title,
+      opportunity.description,
+      ...(opportunity.requirements || []),
+    ]
+      .join(' ')
+      .toLowerCase();
+
+    const patterns = [
+      'entrevista',
+      'videollamada',
+      'video llamada',
+      'zoom call',
+      'llamada telefónica',
+      'llamada telefonica',
+      'presencial',
+      'reunión presencial',
+      'reunion presencial',
+      'documento de identidad',
+      'identificación personal',
+      'identificacion personal',
+    ];
+
+    const match = patterns.find(
+      (pattern) => text.includes(pattern)
+    );
+
+    if (!match) {
+      return {
+        needed: false,
+      };
+    }
+
+    return {
+      needed: true,
+      reason: `La oportunidad contiene un requisito humano: "${match}".`,
+      whatUserMustDo:
+        'Realizar la acción humana solicitada por la plataforma o cliente.',
+      whatHappensNext:
+        'Una vez resuelta la acción, el agente podrá continuar con las partes automatizables.',
+    };
+  }
+
+  /**
+   * Crea un plan de ejecución local.
+   */
+  public planTaskFromOpportunity(
+    opportunity: Opportunity
+  ): Task {
+    if (this.taskAlreadyExists(opportunity.id)) {
+      const existing = this.db
+        .getState()
+        .tasks
+        .find(
+          (task) =>
+            task.opportunityId === opportunity.id &&
+            task.status !== 'CANCELLED' &&
+            task.status !== 'FAILED'
+        );
+
+      if (existing) {
+        return existing;
+      }
+    }
+
+    const taskId =
+      `task-${Date.now()}-${crypto
+        .randomBytes(3)
+        .toString('hex')}`;
+
+    const taskType =
+      this.detectTaskType(opportunity);
+
+    const humanRequirement =
+      this.detectHumanRequirement(opportunity);
 
     const plan: PlanStep[] = [
       {
         stepNumber: 1,
-        title: 'Análisis de Especificación y Requisitos',
-        description: 'Descomposición analítica del problema, extracción de restricciones técnicas y preparación del entorno de trabajo.',
+        title: 'Analizar requisitos',
+        description:
+          'Analizar localmente el título, descripción, requisitos y condiciones de la oportunidad.',
         requiredTool: 'text_processor',
         capability: 'WEB_RESEARCH',
         status: 'PENDING',
       },
       {
         stepNumber: 2,
-        title: `Ejecución Central: ${primaryCap}`,
-        description: `Generación del trabajo técnico mediante ${primaryTool} respetando parámetros de calidad.`,
-        requiredTool: primaryTool,
-        capability: primaryCap,
+        title: taskType.title,
+        description:
+          `Ejecutar el trabajo mediante la capacidad ${taskType.capability}.`,
+        requiredTool: taskType.tool,
+        capability: taskType.capability,
         status: 'PENDING',
       },
       {
         stepNumber: 3,
-        title: 'Verificación de Integridad y Validación de Formato',
-        description: 'Auditoría automática de consistencia sintáctica, ausencia de datos espurios y comprobación contra briefing.',
+        title: 'Verificar resultado',
+        description:
+          'Comprobar estructura, coherencia, contenido y cumplimiento de los requisitos conocidos.',
         requiredTool: 'text_processor',
         capability: 'DOCUMENT_PROCESSING',
         status: 'PENDING',
       },
       {
         stepNumber: 4,
-        title: 'Firma Criptográfica y Preservación de Evidencia',
-        description: 'Cálculo de hash SHA-256, guardado en almacenamiento inmutable y vinculación al historial auditado.',
+        title: 'Crear evidencia',
+        description:
+          'Generar una copia verificable del trabajo y calcular su huella SHA-256.',
         requiredTool: 'evidence_recorder',
         capability: 'DOCUMENT_PROCESSING',
         status: 'PENDING',
       },
       {
         stepNumber: 5,
-        title: 'Empaquetado de Entregable y Registro Financiero',
-        description: 'Generación del expediente final para el usuario/cliente y emisión de estado de pago PENDIENTE.',
+        title: 'Preparar entrega',
+        description:
+          'Generar el archivo final preparado para su entrega o revisión.',
         requiredTool: 'file_generator',
         capability: 'CONTENT_GENERATION',
         status: 'PENDING',
@@ -100,75 +292,177 @@ export class TaskManager {
       title: `Ejecutar: ${opportunity.title}`,
       description: opportunity.description,
       plan,
-      status: 'READY',
+      status: humanRequirement.needed
+        ? 'NEEDS_HUMAN'
+        : 'READY',
       createdAt: new Date().toISOString(),
-      evidence: [opportunity.url],
+      evidence: opportunity.url
+        ? [opportunity.url]
+        : [],
       paymentStatus: 'NONE',
-      estimatedAmount: opportunity.estimatedAmount,
+      estimatedAmount:
+        opportunity.estimatedAmount || 0,
       confirmedAmount: 0,
-      currency: opportunity.currency,
-      humanRequirement: {
-        needed: false,
-      },
+      currency:
+        opportunity.currency || 'EUR',
+      humanRequirement,
     };
 
     opportunity.status = 'PLANNED';
+
     const state = this.db.getState();
+
     state.tasks.unshift(task);
 
     this.db.addEvent({
       type: 'TASK_CREATED',
-      severity: 'INFO',
-      title: 'Tarea Planificada',
-      message: `Plan de trabajo estructurado para la tarea "${task.title.substring(0, 60)}" (${plan.length} pasos).`,
-      metadata: { taskId: task.id, opportunityId: opportunity.id },
+      severity: humanRequirement.needed
+        ? 'WARNING'
+        : 'INFO',
+      title: humanRequirement.needed
+        ? 'Tarea creada — requiere intervención'
+        : 'Tarea creada automáticamente',
+      message:
+        `Tarea "${task.title.substring(
+          0,
+          80
+        )}" preparada con ${plan.length} pasos.`,
+      metadata: {
+        taskId,
+        opportunityId: opportunity.id,
+        capability: taskType.capability,
+        humanRequired:
+          humanRequirement.needed,
+      },
     });
 
     this.db.save();
+
     return task;
   }
 
-  public authorizeTask(id: string): Task | null {
+  /**
+   * Autoriza una tarea existente.
+   */
+  public authorizeTask(
+    id: string
+  ): Task | null {
     const task = this.getTask(id);
-    if (!task) return null;
+
+    if (!task) {
+      return null;
+    }
+
+    if (
+      task.status === 'CANCELLED' ||
+      task.status === 'COMPLETED'
+    ) {
+      return task;
+    }
+
     task.status = 'AUTHORIZED';
+
     this.db.addEvent({
       type: 'TASK_AUTHORIZED',
       severity: 'SUCCESS',
-      title: 'Tarea Autorizada por Supervisor',
-      message: `La tarea "${task.title.substring(0, 50)}" ha recibido autorización explícita para su ejecución autónoma.`,
-      metadata: { taskId: task.id },
+      title: 'Tarea autorizada',
+      message:
+        `La tarea "${task.title.substring(
+          0,
+          70
+        )}" está autorizada para ejecución.`,
+      metadata: {
+        taskId: task.id,
+      },
     });
+
     this.db.save();
+
     return task;
   }
 
-  public cancelTask(id: string, reason?: string): Task | null {
+  /**
+   * Cancela una tarea.
+   */
+  public cancelTask(
+    id: string,
+    reason?: string
+  ): Task | null {
     const task = this.getTask(id);
-    if (!task) return null;
-    task.status = 'CANCELLED';
-    task.error = reason || 'Cancelada por el administrador';
-    this.db.save();
-    return task;
-  }
 
-  public resolveHumanIntervention(id: string, notes?: string): Task | null {
-    const task = this.getTask(id);
-    if (!task) return null;
-    if (task.humanRequirement) {
-      task.humanRequirement.isResolved = true;
-      task.humanRequirement.resolvedAt = new Date().toISOString();
-      task.humanRequirement.notes = notes || 'Intervención completada por supervisor';
+    if (!task) {
+      return null;
     }
+
+    task.status = 'CANCELLED';
+
+    task.error =
+      reason ||
+      'Tarea cancelada por el administrador.';
+
+    this.db.addEvent({
+      type: 'TASK_FAILED',
+      severity: 'WARNING',
+      title: 'Tarea cancelada',
+      message:
+        `La tarea "${task.title.substring(
+          0,
+          70
+        )}" fue cancelada.`,
+      metadata: {
+        taskId: task.id,
+        reason: task.error,
+      },
+    });
+
+    this.db.save();
+
+    return task;
+  }
+
+  /**
+   * Resuelve una intervención humana.
+   */
+  public resolveHumanIntervention(
+    id: string,
+    notes?: string
+  ): Task | null {
+    const task = this.getTask(id);
+
+    if (!task) {
+      return null;
+    }
+
+    if (task.humanRequirement) {
+      task.humanRequirement.isResolved =
+        true;
+
+      task.humanRequirement.resolvedAt =
+        new Date().toISOString();
+
+      task.humanRequirement.notes =
+        notes ||
+        'Intervención completada.';
+    }
+
     task.status = 'READY';
+
     this.db.addEvent({
       type: 'HUMAN_ACTION_RESOLVED',
       severity: 'SUCCESS',
-      title: 'Intervención Humana Resuelta',
-      message: `El supervisor completó la acción requerida para la tarea "${task.title.substring(0, 50)}".`,
-      metadata: { taskId: task.id },
+      title: 'Intervención humana resuelta',
+      message:
+        `La tarea "${task.title.substring(
+          0,
+          70
+        )}" puede continuar.`,
+      metadata: {
+        taskId: task.id,
+      },
     });
+
     this.db.save();
+
     return task;
   }
 }
