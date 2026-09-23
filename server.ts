@@ -11,59 +11,155 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 
-// Parse CLI port arguments or default strictly to 3000 (environment constraint: dev server must run on 3000)
+/**
+ * El entorno utiliza el puerto 3000.
+ * También permitimos --port si el entorno lo proporciona.
+ */
 function resolvePort(): number {
-  const portIndex = process.argv.indexOf('--port');
-  if (portIndex !== -1 && process.argv[portIndex + 1]) {
-    return parseInt(process.argv[portIndex + 1], 10);
+  const portIndex =
+    process.argv.indexOf('--port');
+
+  if (
+    portIndex !== -1 &&
+    process.argv[portIndex + 1]
+  ) {
+    const requestedPort = Number(
+      process.argv[portIndex + 1]
+    );
+
+    if (
+      Number.isInteger(requestedPort) &&
+      requestedPort > 0 &&
+      requestedPort <= 65535
+    ) {
+      return requestedPort;
+    }
   }
-  // In dev environment, port 3000 is required by the container reverse proxy
+
   return 3000;
 }
 
 const port = resolvePort();
-const isProd = process.env.NODE_ENV === 'production';
+const isProd =
+  process.env.NODE_ENV === 'production';
 
-// Express body parsers
-app.use(express.json({ limit: '5mb' }));
-app.use(express.urlencoded({ extended: true, limit: '5mb' }));
+/**
+ * JSON y formularios.
+ */
+app.use(
+  express.json({
+    limit: '5mb',
+  })
+);
 
-// Mount REST API
+app.use(
+  express.urlencoded({
+    extended: true,
+    limit: '5mb',
+  })
+);
+
+/**
+ * Cabeceras básicas de seguridad.
+ */
+app.disable('x-powered-by');
+
+/**
+ * API principal.
+ */
 app.use('/api', apiRouter);
 
-// Serve static evidence downloads
-app.use('/data/evidence', express.static(path.resolve(__dirname, 'data/evidence')));
+/**
+ * Archivos de evidencia generados por el agente.
+ *
+ * Estos archivos son resultados/deliverables locales.
+ */
+app.use(
+  '/data/evidence',
+  express.static(
+    path.resolve(
+      __dirname,
+      'data/evidence'
+    )
+  )
+);
 
-async function startServer() {
+async function startServer(): Promise<void> {
   if (!isProd) {
-    // In dev mode, mount Vite middleware
-    const { createServer } = await import('vite');
-    const vite = await createServer({
-      server: {
-        middlewareMode: true,
-        hmr: false,
-        watch: null,
-      },
-      appType: 'spa',
-    });
+    /**
+     * Desarrollo:
+     * Vite sirve la interfaz web.
+     */
+    const { createServer } =
+      await import('vite');
+
+    const vite =
+      await createServer({
+        server: {
+          middlewareMode: true,
+          hmr: false,
+          watch: null,
+        },
+        appType: 'spa',
+      });
 
     app.use(vite.middlewares);
   } else {
-    // In production, serve built dist files
-    const distPath = path.resolve(__dirname, 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+    /**
+     * Producción:
+     * sirve los archivos construidos
+     * de la aplicación.
+     */
+    const distPath =
+      path.resolve(
+        __dirname,
+        'dist'
+      );
+
+    app.use(
+      express.static(distPath)
+    );
+
+    app.get('*', (_req, res) => {
+      res.sendFile(
+        path.join(
+          distPath,
+          'index.html'
+        )
+      );
     });
   }
 
-  app.listen(port, '0.0.0.0', () => {
-    console.log(`[Agente Autónomo] Servidor full-stack iniciado en http://0.0.0.0:${port}`);
-    console.log(`[Agente Autónomo] Principio de Realidad ACTIVO: Sin datos falsos.`);
-  });
+  app.listen(
+    port,
+    '0.0.0.0',
+    () => {
+      console.log(
+        `[Agente Autónomo] Servidor iniciado en puerto ${port}.`
+      );
+
+      console.log(
+        '[Agente Autónomo] Motor local autónomo activo.'
+      );
+
+      console.log(
+        '[Agente Autónomo] Principio de realidad financiera activo.'
+      );
+
+      console.log(
+        '[Agente Autónomo] No se consideran ingresos no confirmados como dinero disponible.'
+      );
+    }
+  );
 }
 
-startServer().catch((err) => {
-  console.error('[Agente Autónomo] Error fatal al iniciar el servidor:', err);
-  process.exit(1);
-});
+startServer().catch(
+  (error: unknown) => {
+    console.error(
+      '[Agente Autónomo] Error fatal al iniciar el servidor:',
+      error
+    );
+
+    process.exit(1);
+  }
+);
