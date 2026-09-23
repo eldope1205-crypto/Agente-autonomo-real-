@@ -6,14 +6,15 @@ import {
   Square,
   RotateCw,
   Sliders,
-  Shield,
   CheckCircle2,
-  AlertCircle,
-  HelpCircle,
-  ArrowRight,
   Info,
 } from 'lucide-react';
-import { SystemStatus, AgentMode, CycleStep } from '../types/index.js';
+
+import {
+  SystemStatus,
+  AgentMode,
+  CycleStep,
+} from '../types/index.js';
 
 interface AgentViewProps {
   status: SystemStatus | null;
@@ -27,6 +28,13 @@ interface AgentViewProps {
   cycleResult?: any;
 }
 
+interface StepInfo {
+  title: string;
+  objective: string;
+  tools: string[];
+  logic: string;
+}
+
 export const AgentView: React.FC<AgentViewProps> = ({
   status,
   onStart,
@@ -38,121 +46,168 @@ export const AgentView: React.FC<AgentViewProps> = ({
   isCycling,
   cycleResult,
 }) => {
-  const [selectedStep, setSelectedStep] = useState<CycleStep>('DISCOVER');
+  const [selectedStep, setSelectedStep] =
+    useState<CycleStep>('DISCOVER');
 
-  const stepsInfo: Record<
-    CycleStep,
-    { title: string; objective: string; tools: string[]; logic: string }
-  > = {
+  const stepsInfo: Record<CycleStep, StepInfo> = {
     IDLE: {
-      title: 'En Espera / Listo',
-      objective: 'El agente aguarda el siguiente intervalo del programador o activación manual.',
+      title: 'En espera',
+      objective:
+        'El agente espera el siguiente ciclo automático o una activación manual.',
       tools: ['scheduler'],
-      logic: 'Verifica estado del agente, colas pendientes y cron.',
+      logic:
+        'Comprueba el estado general y evita ejecutar ciclos cuando el agente está detenido o ocupado.',
     },
+
     DISCOVER: {
-      title: '1. Descubrimiento de Oportunidades',
-      objective: 'Consulta canales públicos reales de Internet (RSS, JSON, XML, HTML).',
+      title: '1. Descubrimiento de oportunidades',
+      objective:
+        'Consulta fuentes públicas para encontrar oportunidades digitales.',
       tools: ['http_fetcher', 'rss_parser'],
-      logic: 'Descarga feeds públicos, normaliza textos y filtra duplicados por URL.',
+      logic:
+        'Obtiene contenido de fuentes habilitadas, valida las URLs, normaliza los datos y evita duplicados.',
     },
+
     ANALYZE: {
-      title: '2. Análisis Objetivo y Sintáctico',
-      objective: 'Extrae especificaciones, requisitos técnicos, remuneración y restricciones.',
+      title: '2. Análisis',
+      objective:
+        'Analiza requisitos, remuneración, capacidades necesarias y restricciones.',
       tools: ['text_processor', 'llm_worker'],
-      logic: 'Inspecciona lenguaje del briefing, descarta requisitos físicos y detecta condiciones clave.',
+      logic:
+        'Utiliza el motor local determinista y reglas de análisis para extraer información útil sin depender de Gemini.',
     },
+
     DECIDE: {
-      title: '3. Motor de Decisión & Puntuación',
-      objective: 'Calcula puntuación multidimensional (capacidades, riesgo, automatización).',
+      title: '3. Decisión',
+      objective:
+        'Evalúa si una oportunidad es compatible con las capacidades y reglas del agente.',
       tools: ['decision_engine'],
-      logic: 'Formula transparente: capacidad (0-30) + automatización (0-25) + remuneración (0-15) + fiabilidad (0-15) - penalizaciones.',
+      logic:
+        'Tiene en cuenta capacidad, automatización, remuneración, fiabilidad, tiempo y riesgos. Las oportunidades peligrosas o incompatibles se rechazan.',
     },
+
     PLAN: {
-      title: '4. Planificación de Tareas',
-      objective: 'Estructura un plan de acción concreto con pasos, herramientas y validaciones.',
+      title: '4. Planificación',
+      objective:
+        'Convierte una oportunidad aceptada en una tarea estructurada.',
       tools: ['task_manager'],
-      logic: 'Crea 5 pasos: análisis, ejecución con LLM/herramienta, verificación, firma SHA-256 y empaquetado.',
+      logic:
+        'Crea pasos de análisis, ejecución, verificación, evidencia y preparación de entrega.',
     },
+
     EXECUTE: {
-      title: '5. Ejecución Técnica Digital',
-      objective: 'Genera el trabajo comprometido (código, documento, traducción, análisis).',
+      title: '5. Ejecución técnica',
+      objective:
+        'Realiza trabajos digitales que puedan ejecutarse con las herramientas disponibles.',
       tools: ['llm_worker', 'file_generator'],
-      logic: 'Solo se ejecuta en modo AUTHORIZED sobre tareas aprobadas expresamente.',
+      logic:
+        'Utiliza herramientas locales para generar entregables. No se inventa trabajo realizado ni resultados externos.',
     },
+
     VERIFY: {
-      title: '6. Verificación de Integridad',
-      objective: 'Comprueba que el entregable cumple con los estándares exigidos sin alucinaciones.',
+      title: '6. Verificación',
+      objective:
+        'Comprueba que el resultado generado existe y puede ser verificado.',
       tools: ['text_processor', 'file_generator'],
-      logic: 'Audita longitud, sintaxis, ausencia de inyecciones y coherencia con el briefing.',
+      logic:
+        'Comprueba el entregable, su existencia y su integridad antes de registrarlo como evidencia.',
     },
+
     SUBMIT: {
-      title: '7. Entrega y Registro de Evidencia',
-      objective: 'Guarda archivo en disco, calcula hash SHA-256 inmutable y solicita intervención humana si la plataforma requiere cuenta.',
+      title: '7. Preparación de entrega',
+      objective:
+        'Prepara el resultado y registra la evidencia generada.',
       tools: ['evidence_recorder'],
-      logic: 'No se evaden CAPTCHAs ni se suplantan credenciales de plataformas.',
+      logic:
+        'Guarda los archivos y calcula su hash SHA-256. No intenta saltarse CAPTCHA, autenticación ni controles de plataformas externas.',
     },
+
     WAIT_PAYMENT: {
-      title: '8. Espera de Liquidación Externa',
-      objective: 'Mantiene seguimiento de pagos pendientes asociados al trabajo remitido.',
+      title: '8. Espera de pago',
+      objective:
+        'Mantiene separados los pagos esperados del dinero realmente recibido.',
       tools: ['finance_manager'],
-      logic: 'El estado se marca como PENDING sin sumar un solo céntimo al capital disponible.',
+      logic:
+        'Un pago PENDING no aumenta el capital disponible.',
     },
+
     CONFIRM_PAYMENT: {
-      title: '9. Confirmación de Pago Real',
-      objective: 'Verifica comprobante real o identificador de transferencia.',
+      title: '9. Confirmación de pago',
+      objective:
+        'Registra un ingreso solamente cuando existe confirmación y evidencia.',
       tools: ['finance_manager'],
-      logic: 'Solo el pago CONFIRMADO incrementa el saldo real disponible del agente.',
+      logic:
+        'Solo una transacción CONFIRMED puede incorporarse al capital disponible.',
     },
+
     ACCOUNT: {
-      title: '10. Asentamiento Contable & Ganancia',
-      objective: 'Recalcula ingresos, gastos, margen neto y reserva de seguridad.',
-      tools: ['ledger'],
-      logic: 'Beneficio = Ingresos Confirmados - Gastos Confirmados.',
+      title: '10. Contabilidad',
+      objective:
+        'Actualiza el estado financiero utilizando las transacciones registradas.',
+      tools: ['finance_manager'],
+      logic:
+        'El capital disponible se basa en ingresos confirmados menos gastos confirmados.',
     },
+
     LEARN: {
-      title: '11. Motor de Aprendizaje',
-      objective: 'Analiza tasas de éxito, tiempos de respuesta de fuentes y razones de rechazo.',
+      title: '11. Aprendizaje',
+      objective:
+        'Analiza resultados anteriores para generar propuestas de mejora.',
       tools: ['learning_engine'],
-      logic: 'Genera propuestas de ajuste sin alterar directivas críticas de seguridad.',
+      logic:
+        'Analiza tasas de éxito, rechazos, errores y fuentes problemáticas sin modificar automáticamente las reglas críticas de seguridad.',
     },
+
     REPEAT: {
-      title: '12. Cierre de Ciclo & Reenganche',
-      objective: 'Incrementa contador persistente de ciclos y se prepara para el siguiente intervalo.',
+      title: '12. Repetición',
+      objective:
+        'Finaliza el ciclo y deja preparado el siguiente ciclo automático.',
       tools: ['scheduler'],
-      logic: 'Ciclo completo completado de forma no bloqueante.',
+      logic:
+        'El siguiente ciclo puede ejecutarse según el intervalo configurado por el sistema.',
     },
   };
 
-  const currentMode = status?.currentMode || 'PREPARE';
-  const agentStatus = status?.agentStatus || 'STOPPED';
+  const currentMode =
+    status?.currentMode || 'PREPARE';
+
+  const agentStatus =
+    status?.agentStatus || 'STOPPED';
 
   return (
     <div className="space-y-6">
-      {/* Header & Controls Panel */}
+
+      {/* PANEL PRINCIPAL */}
+
       <div className="p-6 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-lg">
+
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+
           <div>
             <div className="flex items-center gap-2">
               <Cpu className="w-5 h-5 text-indigo-400" />
+
               <h2 className="text-lg font-bold text-white tracking-tight">
-                Centro de Mando del Agente Core
+                Centro de Mando del Agente
               </h2>
             </div>
+
             <p className="text-xs text-slate-400 mt-1">
-              Control del ciclo autónomo perpetuo, supervisión de estados y directivas operativas.
+              Control del agente, ciclos automáticos y supervisión de operaciones.
             </p>
           </div>
 
-          {/* Action Buttons */}
+          {/* CONTROLES */}
+
           <div className="flex items-center gap-2 flex-wrap">
+
             {agentStatus === 'RUNNING' ? (
               <button
                 onClick={onPause}
                 className="px-4 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-bold transition flex items-center gap-2"
               >
                 <Pause className="w-4 h-4" />
-                Pausar Operación
+                Pausar
               </button>
             ) : (
               <button
@@ -179,22 +234,33 @@ export const AgentView: React.FC<AgentViewProps> = ({
               disabled={isCycling}
               className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition flex items-center gap-2 disabled:opacity-50 shadow-lg shadow-indigo-600/20"
             >
-              <RotateCw className={`w-4 h-4 ${isCycling ? 'animate-spin' : ''}`} />
-              Ejecutar 1 Ciclo Ahora
+              <RotateCw
+                className={`w-4 h-4 ${
+                  isCycling ? 'animate-spin' : ''
+                }`}
+              />
+
+              Ejecutar 1 ciclo
             </button>
+
           </div>
         </div>
 
-        {/* Mode Switcher Detailed */}
+        {/* MODOS */}
+
         <div className="mt-6 pt-5 border-t border-slate-800">
+
           <div className="text-xs font-bold text-slate-300 mb-3 flex items-center gap-1.5">
             <Sliders className="w-4 h-4 text-cyan-400" />
-            Modos de Operación Autónomo
+            Modo de operación
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+
             <button
-              onClick={() => onChangeMode('OBSERVE')}
+              onClick={() =>
+                onChangeMode('OBSERVE')
+              }
               className={`p-4 rounded-xl text-left border transition ${
                 currentMode === 'OBSERVE'
                   ? 'bg-blue-950/40 border-blue-500 text-white shadow-md shadow-blue-500/10'
@@ -202,16 +268,26 @@ export const AgentView: React.FC<AgentViewProps> = ({
               }`}
             >
               <div className="flex items-center justify-between mb-1">
-                <span className="font-bold text-sm text-blue-300">OBSERVE</span>
-                {currentMode === 'OBSERVE' && <CheckCircle2 className="w-4 h-4 text-blue-400" />}
+
+                <span className="font-bold text-sm text-blue-300">
+                  OBSERVE
+                </span>
+
+                {currentMode === 'OBSERVE' && (
+                  <CheckCircle2 className="w-4 h-4 text-blue-400" />
+                )}
+
               </div>
+
               <p className="text-xs text-slate-400 leading-relaxed">
-                Descubre y analiza fuentes públicas. No planifica tareas ni gasta recursos.
+                Descubre y analiza oportunidades sin preparar ejecución automática.
               </p>
             </button>
 
             <button
-              onClick={() => onChangeMode('PREPARE')}
+              onClick={() =>
+                onChangeMode('PREPARE')
+              }
               className={`p-4 rounded-xl text-left border transition ${
                 currentMode === 'PREPARE'
                   ? 'bg-purple-950/40 border-purple-500 text-white shadow-md shadow-purple-500/10'
@@ -219,16 +295,26 @@ export const AgentView: React.FC<AgentViewProps> = ({
               }`}
             >
               <div className="flex items-center justify-between mb-1">
-                <span className="font-bold text-sm text-purple-300">PREPARE (Por Defecto)</span>
-                {currentMode === 'PREPARE' && <CheckCircle2 className="w-4 h-4 text-purple-400" />}
+
+                <span className="font-bold text-sm text-purple-300">
+                  PREPARE
+                </span>
+
+                {currentMode === 'PREPARE' && (
+                  <CheckCircle2 className="w-4 h-4 text-purple-400" />
+                )}
+
               </div>
+
               <p className="text-xs text-slate-400 leading-relaxed">
-                Busca, analiza oportunidades y estructura planes de trabajo esperando su autorización.
+                Descubre, analiza y prepara tareas para su posterior ejecución.
               </p>
             </button>
 
             <button
-              onClick={() => onChangeMode('AUTHORIZED')}
+              onClick={() =>
+                onChangeMode('AUTHORIZED')
+              }
               className={`p-4 rounded-xl text-left border transition ${
                 currentMode === 'AUTHORIZED'
                   ? 'bg-emerald-950/40 border-emerald-500 text-white shadow-md shadow-emerald-500/10'
@@ -236,39 +322,68 @@ export const AgentView: React.FC<AgentViewProps> = ({
               }`}
             >
               <div className="flex items-center justify-between mb-1">
-                <span className="font-bold text-sm text-emerald-300">AUTHORIZED</span>
-                {currentMode === 'AUTHORIZED' && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
+
+                <span className="font-bold text-sm text-emerald-300">
+                  AUTHORIZED
+                </span>
+
+                {currentMode === 'AUTHORIZED' && (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                )}
+
               </div>
+
               <p className="text-xs text-slate-400 leading-relaxed">
-                Ejecuta automáticamente las tareas técnicas autorizadas, guarda evidencias y registra entregables.
+                Permite ejecutar tareas compatibles con las reglas y herramientas disponibles.
               </p>
             </button>
+
           </div>
         </div>
       </div>
 
-      {/* Interactive 12-Step Lifecycle Explorer */}
+      {/* CICLO */}
+
       <div className="p-6 rounded-2xl bg-slate-900/80 border border-slate-800">
+
         <div className="flex items-center justify-between mb-4">
+
           <h3 className="text-sm font-bold text-white font-mono uppercase tracking-wider">
-            Inspección de las 12 Fases del Ciclo
+            12 fases del ciclo
           </h3>
+
           <span className="text-xs text-slate-400 font-mono">
-            Paso activo en tiempo real: <span className="text-cyan-400 font-bold">{status?.currentCycleStep}</span>
+            Paso actual:{' '}
+            <span className="text-cyan-400 font-bold">
+              {status?.currentCycleStep || 'IDLE'}
+            </span>
           </span>
+
         </div>
 
-        {/* Step Selector Buttons */}
+        {/* SELECTOR */}
+
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2 mb-6">
+
           {(Object.keys(stepsInfo) as CycleStep[])
-            .filter((s) => s !== 'IDLE')
-            .map((stepKey, i) => {
-              const isSelected = selectedStep === stepKey;
-              const isLive = status?.currentCycleStep === stepKey;
+            .filter(
+              (step) => step !== 'IDLE'
+            )
+            .map((stepKey, index) => {
+
+              const isSelected =
+                selectedStep === stepKey;
+
+              const isLive =
+                status?.currentCycleStep ===
+                stepKey;
+
               return (
                 <button
                   key={stepKey}
-                  onClick={() => setSelectedStep(stepKey)}
+                  onClick={() =>
+                    setSelectedStep(stepKey)
+                  }
                   className={`p-2.5 rounded-xl border text-left transition ${
                     isSelected
                       ? 'bg-indigo-600/30 border-indigo-500 text-white'
@@ -277,54 +392,106 @@ export const AgentView: React.FC<AgentViewProps> = ({
                       : 'bg-slate-950/40 border-slate-800 text-slate-400 hover:text-slate-200'
                   }`}
                 >
-                  <div className="text-[10px] font-mono text-slate-400">{i + 1}</div>
-                  <div className="text-xs font-bold truncate">{stepKey}</div>
+                  <div className="text-[10px] font-mono text-slate-400">
+                    {index + 1}
+                  </div>
+
+                  <div className="text-xs font-bold truncate">
+                    {stepKey}
+                  </div>
                 </button>
               );
             })}
+
         </div>
 
-        {/* Selected Step Deep Dive Card */}
-        {selectedStep && stepsInfo[selectedStep] && (
+        {/* DETALLE */}
+
+        {stepsInfo[selectedStep] && (
           <div className="p-5 rounded-xl bg-slate-950/70 border border-slate-800 space-y-4">
-            <div className="flex items-center justify-between">
+
+            <div className="flex items-center justify-between gap-3">
+
               <h4 className="text-base font-bold text-white flex items-center gap-2">
-                <span className="text-indigo-400 font-mono">[{selectedStep}]</span>
+
+                <span className="text-indigo-400 font-mono">
+                  [{selectedStep}]
+                </span>
+
                 {stepsInfo[selectedStep].title}
+
               </h4>
+
               <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-800 text-slate-300 border border-slate-700">
-                Herramientas: {stepsInfo[selectedStep].tools.join(', ')}
+                {stepsInfo[
+                  selectedStep
+                ].tools.join(', ')}
               </span>
+
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+
               <div className="p-3 rounded-lg bg-slate-900/60 border border-slate-800/80">
-                <div className="font-bold text-slate-300 mb-1">Propósito en el ciclo:</div>
+
+                <div className="font-bold text-slate-300 mb-1">
+                  Propósito
+                </div>
+
                 <p className="text-slate-400 leading-relaxed">
-                  {stepsInfo[selectedStep].objective}
+                  {
+                    stepsInfo[
+                      selectedStep
+                    ].objective
+                  }
                 </p>
+
               </div>
 
               <div className="p-3 rounded-lg bg-slate-900/60 border border-slate-800/80">
-                <div className="font-bold text-slate-300 mb-1">Regla y Lógica Implementada:</div>
+
+                <div className="font-bold text-slate-300 mb-1">
+                  Lógica
+                </div>
+
                 <p className="text-slate-400 leading-relaxed">
-                  {stepsInfo[selectedStep].logic}
+                  {
+                    stepsInfo[
+                      selectedStep
+                    ].logic
+                  }
                 </p>
+
               </div>
+
             </div>
           </div>
         )}
 
-        {/* Last Cycle Result Banner if executed */}
+        {/* RESULTADO */}
+
         {cycleResult && (
           <div className="mt-4 p-4 rounded-xl bg-indigo-950/30 border border-indigo-800/50 text-xs text-indigo-200 flex items-start gap-3">
+
             <Info className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
+
             <div>
-              <div className="font-bold">Resultado de la última ejecución manual:</div>
-              <p className="mt-0.5">{cycleResult.details}</p>
+
+              <div className="font-bold">
+                Resultado del último ciclo:
+              </div>
+
+              <p className="mt-0.5">
+                {cycleResult.details ||
+                  cycleResult.message ||
+                  'Ciclo ejecutado.'}
+              </p>
+
             </div>
+
           </div>
         )}
+
       </div>
     </div>
   );
