@@ -8,7 +8,10 @@ export type AgentStatus =
   | 'ERROR'
   | 'STOPPING';
 
-export type AgentMode = 'OBSERVE' | 'PREPARE' | 'AUTHORIZED';
+export type AgentMode =
+  | 'OBSERVE'
+  | 'PREPARE'
+  | 'AUTHORIZED';
 
 export type CycleStep =
   | 'IDLE'
@@ -49,8 +52,19 @@ export type TaskStatus =
   | 'CANCELLED'
   | 'NEEDS_HUMAN';
 
-export type SourceType = 'RSS' | 'ATOM' | 'XML' | 'JSON' | 'HTML' | 'SITEMAP';
-export type SourceStatus = 'ACTIVE' | 'ERROR' | 'DISABLED' | 'UNCHECKED';
+export type SourceType =
+  | 'RSS'
+  | 'ATOM'
+  | 'XML'
+  | 'JSON'
+  | 'HTML'
+  | 'SITEMAP';
+
+export type SourceStatus =
+  | 'ACTIVE'
+  | 'ERROR'
+  | 'DISABLED'
+  | 'UNCHECKED';
 
 export interface Source {
   id: string;
@@ -94,7 +108,11 @@ export interface Opportunity {
   score: number;
   riskScore: number;
   automationScore: number;
-  difficulty: 'BAJA' | 'MEDIA' | 'ALTA' | 'EXTREMA';
+  difficulty:
+    | 'BAJA'
+    | 'MEDIA'
+    | 'ALTA'
+    | 'EXTREMA';
   estimatedTime: string;
   detectedAt: string;
   status: OpportunityStatus;
@@ -110,7 +128,12 @@ export interface PlanStep {
   description: string;
   requiredTool: string;
   capability: string;
-  status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'SKIPPED';
+  status:
+    | 'PENDING'
+    | 'RUNNING'
+    | 'COMPLETED'
+    | 'FAILED'
+    | 'SKIPPED';
   output?: string;
   startedAt?: string;
   completedAt?: string;
@@ -141,11 +164,19 @@ export interface Task {
   result?: string;
   error?: string;
   evidence: string[];
-  paymentStatus: 'NONE' | 'PENDING' | 'CONFIRMED' | 'REJECTED';
+
+  paymentStatus:
+    | 'NONE'
+    | 'PENDING'
+    | 'CONFIRMED'
+    | 'REJECTED';
+
   estimatedAmount: number;
   confirmedAmount: number;
   currency: string;
+
   humanRequirement?: TaskHumanRequirement;
+
   deliverableFile?: string;
   deliverablePreview?: string;
 }
@@ -154,8 +185,18 @@ export interface Capability {
   id: string;
   name: string;
   description: string;
-  status: 'AVAILABLE' | 'NEEDS_CONFIG' | 'UNAVAILABLE';
-  level: 'BASIC' | 'INTERMEDIATE' | 'ADVANCED' | 'PRODUCTION';
+
+  status:
+    | 'AVAILABLE'
+    | 'NEEDS_CONFIG'
+    | 'UNAVAILABLE';
+
+  level:
+    | 'BASIC'
+    | 'INTERMEDIATE'
+    | 'ADVANCED'
+    | 'PRODUCTION';
+
   requiredTools: string[];
   cost: string;
   requirements: string[];
@@ -172,7 +213,12 @@ export interface Tool {
   outputSchema: Record<string, any>;
   permissions: string[];
   cost: number;
-  risk: 'BAJO' | 'MEDIO' | 'ALTO';
+
+  risk:
+    | 'BAJO'
+    | 'MEDIO'
+    | 'ALTO';
+
   requiresAuthorization: boolean;
   enabled: boolean;
   limits?: string;
@@ -180,8 +226,16 @@ export interface Tool {
 
 export interface Transaction {
   id: string;
-  type: 'INCOME' | 'EXPENSE';
-  status: 'PENDING' | 'CONFIRMED' | 'CANCELLED';
+
+  type:
+    | 'INCOME'
+    | 'EXPENSE';
+
+  status:
+    | 'PENDING'
+    | 'CONFIRMED'
+    | 'CANCELLED';
+
   amount: number;
   currency: string;
   category: string;
@@ -225,13 +279,19 @@ export interface EvidenceItem {
   filePath?: string;
   fileType: string;
   fileSize: number;
-  verificationStatus: 'VERIFIED' | 'UNVERIFIED' | 'REJECTED';
+
+  verificationStatus:
+    | 'VERIFIED'
+    | 'UNVERIFIED'
+    | 'REJECTED';
+
   notes?: string;
 }
 
 export interface AgentEvent {
   id: string;
   timestamp: string;
+
   type:
     | 'AGENT_STARTED'
     | 'AGENT_STOPPED'
@@ -253,7 +313,13 @@ export interface AgentEvent {
     | 'HUMAN_ACTION_REQUIRED'
     | 'HUMAN_ACTION_RESOLVED'
     | 'LEARNING_UPDATE';
-  severity: 'INFO' | 'SUCCESS' | 'WARNING' | 'ERROR';
+
+  severity:
+    | 'INFO'
+    | 'SUCCESS'
+    | 'WARNING'
+    | 'ERROR';
+
   title: string;
   message: string;
   metadata?: Record<string, any>;
@@ -262,9 +328,22 @@ export interface AgentEvent {
 export interface SubAgent {
   id: string;
   name: string;
-  specialty: 'RESEARCH' | 'CONTENT' | 'DATA_ANALYSIS' | 'AUTOMATION' | 'SUPERVISOR';
+
+  specialty:
+    | 'RESEARCH'
+    | 'CONTENT'
+    | 'DATA_ANALYSIS'
+    | 'AUTOMATION'
+    | 'SUPERVISOR';
+
   description: string;
-  status: 'UNPROVISIONED' | 'IDLE' | 'ACTIVE' | 'DISABLED';
+
+  status:
+    | 'UNPROVISIONED'
+    | 'IDLE'
+    | 'ACTIVE'
+    | 'DISABLED';
+
   capitalRequired: number;
   currency: string;
   tasksCompleted: number;
@@ -279,23 +358,43 @@ export interface SubAgent {
 export interface LearningInsight {
   id: string;
   createdAt: string;
-  category: 'SOURCES' | 'OPPORTUNITIES' | 'TASKS' | 'FINANCE' | 'SECURITY';
+
+  category:
+    | 'SOURCES'
+    | 'OPPORTUNITIES'
+    | 'TASKS'
+    | 'FINANCE'
+    | 'SECURITY';
+
   observation: string;
+
   metrics: {
     totalOpportunitiesEvaluated: number;
     acceptanceRate: number;
     tasksSuccessRate: number;
     avgExecutionSeconds: number;
   };
+
   proposals: string[];
-  appliedStatus: 'PROPOSED' | 'APPLIED' | 'REJECTED';
+
+  appliedStatus:
+    | 'PROPOSED'
+    | 'APPLIED'
+    | 'REJECTED';
 }
 
 export interface SecurityRule {
   id: string;
   name: string;
   description: string;
-  category: 'SSRF' | 'INPUT_VALIDATION' | 'PROMPT_INJECTION' | 'OUTPUT_INTEGRITY' | 'FINANCIAL_GATE';
+
+  category:
+    | 'SSRF'
+    | 'INPUT_VALIDATION'
+    | 'PROMPT_INJECTION'
+    | 'OUTPUT_INTEGRITY'
+    | 'FINANCIAL_GATE';
+
   enforced: boolean;
   blocksCount: number;
   lastBlocked?: string;
@@ -306,16 +405,25 @@ export interface SecurityRule {
 export interface AppSettings {
   agentName: string;
   agentMode: AgentMode;
-  searchInterval: number; // in seconds
+
+  searchInterval: number;
+
   maxResultsPerSource: number;
   maxTasksPerCycle: number;
   maxConcurrentTasks: number;
   maxDailyTasks: number;
+
   financialLimits: FinancialLimits;
-  securityLevel: 'STANDARD' | 'HIGH' | 'MAXIMUM';
+
+  securityLevel:
+    | 'STANDARD'
+    | 'HIGH'
+    | 'MAXIMUM';
+
   autoPlanTasks: boolean;
   notifyOnCriticalOpportunity: boolean;
   notifyOnHumanRequired: boolean;
+
   requireExecutionAuthorization?: boolean;
 }
 
@@ -323,9 +431,11 @@ export interface SystemStatus {
   agentStatus: AgentStatus;
   currentMode: AgentMode;
   currentCycleStep: CycleStep;
+
   cycleCount: number;
   lastActivity: string;
   schedulerActive: boolean;
+
   opportunitiesCount: {
     total: number;
     new: number;
@@ -334,6 +444,7 @@ export interface SystemStatus {
     rejected: number;
     blocked: number;
   };
+
   tasksCount: {
     total: number;
     ready: number;
@@ -343,9 +454,13 @@ export interface SystemStatus {
     blocked: number;
     failed: number;
   };
+
   activeSourcesCount: number;
   totalSourcesCount: number;
+
   finances: FinancialSummary;
+
   recentErrorsCount: number;
-  geminiConfigured: boolean;
+
+  localEngineAvailable: boolean;
 }
