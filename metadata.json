@@ -1,0 +1,6 @@
+{
+  "name": "Agente Autónomo IA — Trabajador Digital Real",
+  "description": "Sistema full-stack de agente autónomo de trabajo digital real: descubrimiento de oportunidades públicas, análisis objetivo, ejecución de tareas autorizadas, auditoría de evidencias y contabilidad real.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
