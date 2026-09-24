@@ -52,7 +52,7 @@ export class ToolRegistry {
 
   public isReplicateAvailable(): boolean {
     return Boolean(
-      'TU_TOKEN_NUEVO'.trim()
+      process.env.REPLICATE_API_TOKEN?.trim()
     );
   }
 
@@ -331,7 +331,6 @@ export class ToolRegistry {
     prompt: string,
     systemInstruction?: string
   ): Promise<LocalLlmResult> {
-
     if (this.isReplicateAvailable()) {
       return this.executeReplicatePrompt(
         prompt,
@@ -357,97 +356,125 @@ export class ToolRegistry {
     prompt: string,
     systemInstruction?: string
   ): Promise<LocalLlmResult> {
-
     const token =
-      'TU_TOKEN_NUEVO';
+      process.env.REPLICATE_API_TOKEN?.trim() || '';
 
     const model =
+      process.env.REPLICATE_MODEL?.trim() ||
       'meta/meta-llama-3-70b-instruct';
 
-    if (
-      !token ||
-      token === 'r8_Wi3M6MINZSNQjjwCWyKykYjpk1IeroC49xK8D'
-    ) {
+    if (!token) {
       throw new Error(
         'Falta configurar el token de Replicate.'
       );
     }
 
-    const response =
-      await fetch(
-        `https://api.replicate.com/v1/models/${model}/predictions`,
-        {
-          method: 'POST',
-          headers: {
-            Authorization:
-              `Bearer ${token}`,
-            'Content-Type':
-              'application/json',
-            Prefer:
-              'wait=60',
-          },
-          body: JSON.stringify({
-            input: {
-              prompt,
-              system_prompt:
-                systemInstruction ||
-                'Eres el motor de IA de un agente autónomo. Analiza las tareas, crea planes concretos y devuelve resultados verificables.',
-              max_tokens: 2048,
-              temperature: 0.7,
+    const controller =
+      new AbortController();
+
+    const timeout =
+      setTimeout(
+        () => controller.abort(),
+        90000
+      );
+
+    try {
+      const finalPrompt =
+        systemInstruction
+          ? `${systemInstruction}\n\nUSUARIO:\n${prompt}`
+          : prompt;
+
+      const response =
+        await fetch(
+          `https://api.replicate.com/v1/models/${model}/predictions`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization:
+                `Bearer ${token}`,
+              'Content-Type':
+                'application/json',
+              Prefer:
+                'wait=60',
             },
-          }),
-        }
-      );
+            body: JSON.stringify({
+              input: {
+                prompt: finalPrompt,
+                max_tokens: 2048,
+                temperature: 0.7,
+              },
+            }),
+            signal: controller.signal,
+          }
+        );
 
-    const data =
-      await response.json();
+      const contentType =
+        response.headers.get(
+          'content-type'
+        ) || '';
 
-    if (!response.ok) {
-      const details =
-        typeof data?.detail === 'string'
-          ? data.detail
-          : typeof data?.error === 'string'
-            ? data.error
-            : JSON.stringify(data);
+      let data: any;
 
-      throw new Error(
-        `Replicate respondió ${response.status}: ${details}`
-      );
+      if (
+        contentType.includes(
+          'application/json'
+        )
+      ) {
+        data =
+          await response.json();
+      } else {
+        data =
+          await response.text();
+      }
+
+      if (!response.ok) {
+        const details =
+          typeof data === 'object'
+            ? data?.detail ||
+              data?.error ||
+              JSON.stringify(data)
+            : String(data);
+
+        throw new Error(
+          `Replicate respondió ${response.status}: ${details}`
+        );
+      }
+
+      if (
+        data?.status === 'failed' ||
+        data?.status === 'canceled'
+      ) {
+        throw new Error(
+          data?.error ||
+            `Replicate terminó con estado ${data?.status}.`
+        );
+      }
+
+      const output =
+        this.extractReplicateOutput(
+          data?.output
+        );
+
+      if (!output) {
+        throw new Error(
+          'Replicate no devolvió ningún resultado.'
+        );
+      }
+
+      return {
+        text: output,
+        modelUsed:
+          `replicate:${model}`,
+        isRealAi: true,
+      };
+    } finally {
+      clearTimeout(timeout);
     }
-
-    if (
-      data?.status === 'failed' ||
-      data?.status === 'canceled'
-    ) {
-      throw new Error(
-        data?.error ||
-          `Replicate terminó con estado ${data?.status}.`
-      );
-    }
-
-    const output =
-      this.extractReplicateOutput(
-        data?.output
-      );
-
-    if (!output) {
-      throw new Error(
-        'Replicate no devolvió ningún resultado.'
-      );
-    }
-
-    return {
-      text: output,
-      modelUsed:
-        `replicate:${model}`,
-      isRealAi: true,
-    };
   }
 
   private extractReplicateOutput(
     output: unknown
   ): string {
-
     if (
       typeof output === 'string'
     ) {
@@ -514,7 +541,6 @@ export class ToolRegistry {
     prompt: string,
     systemInstruction?: string
   ): string {
-
     const normalized =
       prompt.toLowerCase();
 
@@ -582,7 +608,6 @@ export class ToolRegistry {
     fileHash: string;
     sizeBytes: number;
   } {
-
     const evidenceDir =
       this.db.getEvidenceDir();
 
