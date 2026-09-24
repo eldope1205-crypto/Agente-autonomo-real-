@@ -42,7 +42,6 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // Core Data States
   const [status, setStatus] = useState<SystemStatus | null>(null);
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -59,13 +58,15 @@ export default function App() {
   const [memoryData, setMemoryData] = useState<any>(null);
   const [subAgents, setSubAgents] = useState<SubAgent[]>([]);
   const [learningInsights, setLearningInsights] = useState<LearningInsight[]>([]);
-  const [securityData, setSecurityData] = useState<{ rules: SecurityRule[]; events: AgentEvent[] }>({
+  const [securityData, setSecurityData] = useState<{
+    rules: SecurityRule[];
+    events: AgentEvent[];
+  }>({
     rules: [],
     events: [],
   });
   const [settings, setSettings] = useState<AppSettings | null>(null);
 
-  // Transient UX States
   const [isCycling, setIsCycling] = useState(false);
   const [lastCycleResult, setLastCycleResult] = useState<any>(null);
   const [isEvaluatingLearning, setIsEvaluatingLearning] = useState(false);
@@ -76,7 +77,6 @@ export default function App() {
     setTimeout(() => setToastMessage(null), 3500);
   };
 
-  // Main fetch function
   const fetchAllData = useCallback(async () => {
     try {
       const [
@@ -107,7 +107,10 @@ export default function App() {
         api.getMemory().catch(() => null),
         api.getAgents().catch(() => []),
         api.getLearning().catch(() => []),
-        api.getSecurity().catch(() => ({ rules: [], events: [] })),
+        api.getSecurity().catch(() => ({
+          rules: [],
+          events: [],
+        })),
         api.getSettings().catch(() => null),
       ]);
 
@@ -117,32 +120,40 @@ export default function App() {
       setSources(sourcesRes);
       setCapabilities(capsRes);
       setTools(toolsRes);
+
       if (finRes) setFinances(finRes);
+
       setEvidence(eviRes);
       setEvents(eventsRes);
       setMemoryData(memRes);
       setSubAgents(agentsRes);
       setLearningInsights(learnRes);
       setSecurityData(secRes);
+
       if (setRes) setSettings(setRes);
     } catch (err) {
-      console.error('[App] Error al actualizar estado del agente:', err);
+      console.error(
+        '[App] Error al actualizar estado del agente:',
+        err
+      );
     }
   }, []);
 
-  // Initial load and periodic refresh
   useEffect(() => {
     fetchAllData();
+
     const interval = setInterval(fetchAllData, 3500);
+
     return () => clearInterval(interval);
   }, [fetchAllData]);
 
-  // Agent Operations
   const handleStartAgent = async () => {
     try {
       const res = await api.startAgent();
+
       setStatus(res.system);
       showToast('Agente iniciado con éxito');
+
       fetchAllData();
     } catch (err: any) {
       showToast(err.message || 'Error al iniciar agente');
@@ -152,8 +163,10 @@ export default function App() {
   const handleStopAgent = async () => {
     try {
       const res = await api.stopAgent();
+
       setStatus(res.system);
       showToast('Agente detenido');
+
       fetchAllData();
     } catch (err: any) {
       showToast(err.message || 'Error al detener agente');
@@ -163,8 +176,10 @@ export default function App() {
   const handlePauseAgent = async () => {
     try {
       const res = await api.pauseAgent();
+
       setStatus(res.system);
       showToast('Agente pausado');
+
       fetchAllData();
     } catch (err: any) {
       showToast(err.message || 'Error al pausar agente');
@@ -174,8 +189,10 @@ export default function App() {
   const handleResumeAgent = async () => {
     try {
       const res = await api.resumeAgent();
+
       setStatus(res.system);
       showToast('Agente reanudado');
+
       fetchAllData();
     } catch (err: any) {
       showToast(err.message || 'Error al reanudar agente');
@@ -185,8 +202,10 @@ export default function App() {
   const handleChangeMode = async (mode: AgentMode) => {
     try {
       const res = await api.setAgentMode(mode);
+
       setStatus(res.system);
       showToast(`Modo cambiado a ${mode}`);
+
       fetchAllData();
     } catch (err: any) {
       showToast(err.message || 'Error al cambiar modo');
@@ -195,11 +214,17 @@ export default function App() {
 
   const handleRunCycle = async () => {
     setIsCycling(true);
+
     try {
       const res = await api.runCycle();
+
       setLastCycleResult(res.cycleResult);
       setStatus(res.system);
-      showToast(res.cycleResult?.details || 'Ciclo finalizado');
+
+      showToast(
+        res.cycleResult?.details || 'Ciclo finalizado'
+      );
+
       fetchAllData();
     } catch (err: any) {
       showToast(err.message || 'Error al ejecutar ciclo');
@@ -208,11 +233,14 @@ export default function App() {
     }
   };
 
-  // Opportunities / Tasks Actions
   const handlePlanTask = async (opportunityId: string) => {
     try {
-      const planned = await api.planFromOpportunity(opportunityId);
+      const planned = await api.planFromOpportunity(
+        opportunityId
+      );
+
       showToast(`Tarea planificada: ${planned.title}`);
+
       fetchAllData();
       setActiveTab('tasks');
     } catch (err: any) {
@@ -223,37 +251,63 @@ export default function App() {
   const handleAuthorizeTask = async (taskId: string) => {
     try {
       await api.authorizeTask(taskId);
+
       showToast('Tarea autorizada para ejecución');
+
       fetchAllData();
     } catch (err: any) {
-      showToast(err.message || 'Error al autorizar tarea');
+      showToast(
+        err.message || 'Error al autorizar tarea'
+      );
     }
   };
 
   const handleExecuteTask = async (taskId: string) => {
     try {
-      showToast('Ejecutando tarea y generando entregable...');
+      showToast(
+        'Ejecutando tarea y generando entregable...'
+      );
+
       const res = await api.executeTaskNow(taskId);
+
       if (res.success) {
-        showToast('Tarea ejecutada y firmada con SHA-256');
+        showToast(
+          'Tarea ejecutada y hash SHA-256 de integridad generado'
+        );
       } else {
-        showToast(res.error || 'Tarea bloqueada o no ejecutable');
+        showToast(
+          res.error ||
+            'Tarea bloqueada o no ejecutable'
+        );
       }
+
       fetchAllData();
     } catch (err: any) {
-      showToast(err.message || 'Error al ejecutar tarea');
+      showToast(
+        err.message || 'Error al ejecutar tarea'
+      );
     }
   };
 
   const handleExecuteAllTasks = async () => {
     try {
       setIsCycling(true);
-      showToast('Iniciando ejecución de tareas disponibles...');
+
+      showToast(
+        'Iniciando ejecución local de tareas disponibles...'
+      );
+
       const res = await api.executeAllTasks();
-      showToast(`Tareas procesadas: ${res.executed} ejecutadas, ${res.blocked} bloqueadas, ${res.completed} completadas.`);
+
+      showToast(
+        `Tareas procesadas: ${res.executed} ejecutadas, ${res.blocked} bloqueadas, ${res.completed} completadas.`
+      );
+
       fetchAllData();
     } catch (err: any) {
-      showToast(err.message || 'Error al ejecutar tareas');
+      showToast(
+        err.message || 'Error al ejecutar tareas'
+      );
     } finally {
       setIsCycling(false);
     }
@@ -262,116 +316,245 @@ export default function App() {
   const handleCancelTask = async (taskId: string) => {
     try {
       await api.cancelTask(taskId);
+
       showToast('Tarea cancelada');
+
       fetchAllData();
     } catch (err: any) {
       showToast(err.message || 'Error al cancelar');
     }
   };
 
-  const handleResolveHuman = async (taskId: string, notes?: string) => {
+  const handleResolveHuman = async (
+    taskId: string,
+    notes?: string
+  ) => {
     try {
-      showToast('Reanudando tarea tras resolución humana...');
-      await api.resolveHumanIntervention(taskId, notes);
-      showToast('Intervención humana resuelta y tarea procesada');
+      showToast(
+        'Reanudando tarea tras resolución humana...'
+      );
+
+      await api.resolveHumanIntervention(
+        taskId,
+        notes
+      );
+
+      showToast(
+        'Intervención humana resuelta y tarea procesada'
+      );
+
       fetchAllData();
     } catch (err: any) {
-      showToast(err.message || 'Error al resolver intervención');
+      showToast(
+        err.message ||
+          'Error al resolver intervención'
+      );
     }
   };
 
-  // Sources Actions
   const handleAddSource = async (data: any) => {
-    await api.addSource(data);
-    showToast('Fuente pública agregada');
-    fetchAllData();
+    try {
+      await api.addSource(data);
+
+      showToast('Fuente pública agregada');
+
+      fetchAllData();
+    } catch (err: any) {
+      showToast(
+        err.message || 'Error al agregar fuente'
+      );
+    }
   };
 
   const handleRemoveSource = async (id: string) => {
-    if (!confirm('¿Eliminar esta fuente pública?')) return;
-    await api.removeSource(id);
-    showToast('Fuente eliminada');
-    fetchAllData();
+    if (!confirm('¿Eliminar esta fuente pública?')) {
+      return;
+    }
+
+    try {
+      await api.removeSource(id);
+
+      showToast('Fuente eliminada');
+
+      fetchAllData();
+    } catch (err: any) {
+      showToast(
+        err.message || 'Error al eliminar fuente'
+      );
+    }
   };
 
-  const handleToggleSource = async (id: string, enabled: boolean) => {
-    await api.toggleSource(id, enabled);
-    fetchAllData();
+  const handleToggleSource = async (
+    id: string,
+    enabled: boolean
+  ) => {
+    try {
+      await api.toggleSource(id, enabled);
+
+      fetchAllData();
+    } catch (err: any) {
+      showToast(
+        err.message || 'Error al cambiar fuente'
+      );
+    }
   };
 
   const handleTestSource = async (id: string) => {
-    return await api.testSource(id);
+    try {
+      return await api.testSource(id);
+    } catch (err: any) {
+      showToast(
+        err.message || 'Error al probar fuente'
+      );
+
+      return {
+        success: false,
+        error: err.message || 'Error al probar fuente',
+      };
+    }
   };
 
-  // Capabilities Actions
   const handleToggleCapability = async (id: string) => {
-    await api.toggleCapability(id);
-    fetchAllData();
+    try {
+      await api.toggleCapability(id);
+
+      fetchAllData();
+    } catch (err: any) {
+      showToast(
+        err.message ||
+          'Error al cambiar capacidad'
+      );
+    }
   };
 
-  // Finances Actions
   const handleRegisterIncome = async (data: any) => {
-    await api.registerIncome(data);
-    showToast('Ingreso registrado en el libro mayor');
-    fetchAllData();
+    try {
+      await api.registerIncome(data);
+
+      showToast(
+        'Ingreso registrado en el libro mayor'
+      );
+
+      fetchAllData();
+    } catch (err: any) {
+      showToast(
+        err.message || 'Error al registrar ingreso'
+      );
+    }
   };
 
-  const handleConfirmIncome = async (txId: string, proof: string) => {
-    await api.confirmIncome(txId, proof);
-    showToast('Pago confirmado. Fondos liberados al capital disponible.');
-    fetchAllData();
+  const handleConfirmIncome = async (
+    txId: string,
+    proof: string
+  ) => {
+    try {
+      await api.confirmIncome(txId, proof);
+
+      showToast(
+        'Pago confirmado. Fondos liberados al capital disponible.'
+      );
+
+      fetchAllData();
+    } catch (err: any) {
+      showToast(
+        err.message || 'Error al confirmar pago'
+      );
+    }
   };
 
   const handleRegisterExpense = async (data: any) => {
-    await api.registerExpense(data);
-    showToast('Gasto confirmado registrado');
-    fetchAllData();
+    try {
+      await api.registerExpense(data);
+
+      showToast(
+        'Gasto confirmado registrado'
+      );
+
+      fetchAllData();
+    } catch (err: any) {
+      showToast(
+        err.message || 'Error al registrar gasto'
+      );
+    }
   };
 
-  // Sub-Agents Actions
   const handleActivateAgent = async (id: string) => {
-    await api.activateAgent(id);
-    showToast('Sub-agente especializado activado');
-    fetchAllData();
+    try {
+      await api.activateAgent(id);
+
+      showToast(
+        'Sub-agente especializado activado'
+      );
+
+      fetchAllData();
+    } catch (err: any) {
+      showToast(
+        err.message || 'Error al activar sub-agente'
+      );
+    }
   };
 
   const handlePauseSubAgent = async (id: string) => {
-    await api.pauseAgentSub(id);
-    showToast('Sub-agente pausado');
-    fetchAllData();
-  };
-
-  // Learning Actions
-  const handleEvaluateLearning = async () => {
-    setIsEvaluatingLearning(true);
     try {
-      const insight = await api.evaluateLearning();
-      showToast('Evaluación completada con nuevas propuestas');
+      await api.pauseAgentSub(id);
+
+      showToast('Sub-agente pausado');
+
       fetchAllData();
     } catch (err: any) {
-      showToast(err.message || 'Error al evaluar aprendizaje');
+      showToast(
+        err.message || 'Error al pausar sub-agente'
+      );
+    }
+  };
+
+  const handleEvaluateLearning = async () => {
+    setIsEvaluatingLearning(true);
+
+    try {
+      await api.evaluateLearning();
+
+      showToast(
+        'Evaluación completada con nuevas propuestas'
+      );
+
+      fetchAllData();
+    } catch (err: any) {
+      showToast(
+        err.message || 'Error al evaluar aprendizaje'
+      );
     } finally {
       setIsEvaluatingLearning(false);
     }
   };
 
-  // Settings Actions
-  const handleSaveSettings = async (newSettings: Partial<AppSettings>) => {
-    await api.updateSettings(newSettings);
-    showToast('Configuración guardada correctamente');
-    fetchAllData();
+  const handleSaveSettings = async (
+    newSettings: Partial<AppSettings>
+  ) => {
+    try {
+      await api.updateSettings(newSettings);
+
+      showToast(
+        'Configuración guardada correctamente'
+      );
+
+      fetchAllData();
+    } catch (err: any) {
+      showToast(
+        err.message ||
+          'Error al guardar configuración'
+      );
+    }
   };
 
   return (
     <div className="min-h-screen bg-[#070b12] text-slate-100 flex flex-col selection:bg-indigo-500 selection:text-white font-sans antialiased">
-      {/* Toast Notification */}
       {toastMessage && (
         <div className="fixed bottom-5 right-5 z-50 px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-xs font-semibold shadow-2xl shadow-indigo-600/30 border border-indigo-400/40 animate-in fade-in slide-in-from-bottom-3 duration-200 flex items-center gap-2">
           <span>{toastMessage}</span>
         </div>
       )}
 
-      {/* Main Header */}
       <Header
         status={status}
         onStart={handleStartAgent}
@@ -389,7 +572,6 @@ export default function App() {
       />
 
       <div className="flex-1 flex max-w-7xl w-full mx-auto">
-        {/* Navigation Sidebar */}
         <Navigation
           activeTab={activeTab}
           onSelectTab={setActiveTab}
@@ -400,10 +582,11 @@ export default function App() {
             evidence: evidence.length,
           }}
           mobileOpen={mobileMenuOpen}
-          onCloseMobile={() => setMobileMenuOpen(false)}
+          onCloseMobile={() =>
+            setMobileMenuOpen(false)
+          }
         />
 
-        {/* Dynamic Main Content Workspace */}
         <main className="flex-1 p-4 sm:p-6 lg:p-8 min-w-0 overflow-x-hidden">
           {activeTab === 'dashboard' && (
             <DashboardView
@@ -446,7 +629,9 @@ export default function App() {
               onExecuteAll={handleExecuteAllTasks}
               onCancel={handleCancelTask}
               onResolveHuman={handleResolveHuman}
-              onViewEvidence={(file) => setActiveTab('evidence')}
+              onViewEvidence={() =>
+                setActiveTab('evidence')
+              }
               loading={isCycling}
             />
           )}
@@ -468,7 +653,9 @@ export default function App() {
             />
           )}
 
-          {activeTab === 'tools' && <ToolsView tools={tools} />}
+          {activeTab === 'tools' && (
+            <ToolsView tools={tools} />
+          )}
 
           {activeTab === 'finances' && (
             <FinancesView
@@ -488,9 +675,13 @@ export default function App() {
             />
           )}
 
-          {activeTab === 'evidence' && <EvidenceView evidence={evidence} />}
+          {activeTab === 'evidence' && (
+            <EvidenceView evidence={evidence} />
+          )}
 
-          {activeTab === 'memory' && <MemoryView memoryData={memoryData} />}
+          {activeTab === 'memory' && (
+            <MemoryView memoryData={memoryData} />
+          )}
 
           {activeTab === 'security' && (
             <SecurityView
@@ -502,7 +693,9 @@ export default function App() {
           {activeTab === 'agents' && (
             <AgentsView
               subAgents={subAgents}
-              availableCapital={finances?.summary?.availableCapital || 0}
+              availableCapital={
+                finances?.summary?.availableCapital || 0
+              }
               onActivate={handleActivateAgent}
               onPause={handlePauseSubAgent}
             />
@@ -516,7 +709,9 @@ export default function App() {
             />
           )}
 
-          {activeTab === 'events' && <EventsView events={events} />}
+          {activeTab === 'events' && (
+            <EventsView events={events} />
+          )}
 
           {activeTab === 'settings' && (
             <SettingsView
