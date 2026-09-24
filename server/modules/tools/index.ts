@@ -1,9 +1,28 @@
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
-
 import { Database } from '../../db/database.js';
 import { SecurityManager } from '../security/index.js';
+
+export interface HttpFetchOptions {
+  timeoutMs?: number;
+  maxBytes?: number;
+  headers?: Record<string, string>;
+}
+
+export interface HttpFetchResult {
+  status: number;
+  headers: Record<string, string>;
+  body: string;
+  durationMs: number;
+  url: string;
+}
+
+export interface LocalLlmResult {
+  text: string;
+  modelUsed: string;
+  isRealAi: boolean;
+}
 
 export class ToolRegistry {
   private static instance: ToolRegistry;
@@ -23,442 +42,256 @@ export class ToolRegistry {
     return ToolRegistry.instance;
   }
 
-  /**
-   * Motor local disponible.
-   * No depende de Gemini ni de otra API de IA.
-   */
   public isLocalEngineAvailable(): boolean {
     return true;
   }
 
-  /**
-   * Compatibilidad con código antiguo.
-   * Gemini ya no se utiliza.
-   */
   public isGeminiAvailable(): boolean {
     return false;
   }
 
-  /**
-   * Realiza una petición HTTP después de validar la URL.
-   */
+  public isReplicateAvailable(): boolean {
+    return Boolean(
+      process.env.REPLICATE_API_TOKEN &&
+      process.env.REPLICATE_API_TOKEN.trim()
+    );
+  }
+
   public async httpFetch(
     url: string,
-    options: {
-      timeoutMs?: number;
-      maxBytes?: number;
-      headers?: Record<string, string>;
-    } = {}
-  ): Promise<{
-    status: number;
-    body: string;
-    headers: Record<string, string>;
-    durationMs: number;
-  }> {
-    const timeoutMs =
-      options.timeoutMs || 12000;
-
-    const maxBytes =
-      options.maxBytes || 2 * 1024 * 1024;
-
+    options: HttpFetchOptions = {}
+  ): Promise<HttpFetchResult> {
     const validation =
-      this.security.validateUrl(url);
+      this.security.validateExternalUrl(url);
 
-    if (
-      !validation.allowed ||
-      !validation.sanitizedUrl
-    ) {
+    if (!validation.allowed) {
       throw new Error(
-        `[Seguridad] Acceso bloqueado: ${
-          validation.reason || 'URL no permitida.'
-        }`
+        validation.reason ||
+          'La URL fue bloqueada por seguridad.'
       );
     }
 
-    const start = Date.now();
+    const timeoutMs =
+      options.timeoutMs || 10000;
+
+    const maxBytes =
+      options.maxBytes || 1024 * 1024;
 
     const controller =
       new AbortController();
 
-    const timeout = setTimeout(() => {
-      controller.abort();
-    }, timeoutMs);
-
-    try {
-      const response = await fetch(
-        validation.sanitizedUrl,
-        {
-          method: 'GET',
-
-          headers: {
-            'User-Agent':
-              'AutonomousAgent/1.0',
-
-            Accept:
-              'text/html,application/xhtml+xml,application/xml,application/json,*/*',
-
-            ...options.headers,
-          },
-
-          signal: controller.signal,
-
-          /*
-           * No seguimos redirecciones automáticamente.
-           * Cada nueva URL deberá validarse explícitamente.
-           */
-          redirect: 'manual',
-        }
+    const timeout =
+      setTimeout(
+        () => controller.abort(),
+        timeoutMs
       );
 
-      const responseHeaders:
-        Record<string, string> = {};
+    const started =
+      Date.now();
+
+    try {
+      const response =
+        await fetch(url, {
+          method: 'GET',
+          headers: {
+            'User-Agent':
+              'AgenteAutonomo/1.0',
+            Accept:
+              'text/html,application/xhtml+xml,application/xml,application/json,text/plain;q=0.9,*/*;q=0.8',
+            ...(options.headers || {}),
+          },
+          redirect: 'manual',
+          signal: controller.signal,
+        });
+
+      const headers: Record<string, string> = {};
 
       response.headers.forEach(
         (value, key) => {
-          responseHeaders[key] = value;
+          headers[key] = value;
         }
       );
 
-      /*
-       * Si existe redirección, devolvemos la respuesta
-       * sin seguirla automáticamente.
-       */
-      if (
-        response.status >= 300 &&
-        response.status < 400
-      ) {
-        return {
-          status: response.status,
-          body: '',
-          headers: responseHeaders,
-          durationMs:
-            Date.now() - start,
-        };
-      }
+      const contentLength =
+        Number(
+          response.headers.get(
+            'content-length'
+          ) || 0
+        );
 
-      const reader =
-        response.body?.getReader();
-
-      if (!reader) {
-        return {
-          status: response.status,
-          body: '',
-          headers: responseHeaders,
-          durationMs:
-            Date.now() - start,
-        };
-      }
-
-      let receivedBytes = 0;
-
-      const chunks: Uint8Array[] = [];
-
-      while (true) {
-        const {
-          done,
-          value,
-        } = await reader.read();
-
-        if (done) {
-          break;
-        }
-
-        if (value) {
-          receivedBytes +=
-            value.length;
-
-          if (
-            receivedBytes > maxBytes
-          ) {
-            await reader.cancel();
-
-            throw new Error(
-              `[Seguridad] Respuesta demasiado grande. Límite: ${
-                maxBytes / 1024
-              } KB`
-            );
-          }
-
-          chunks.push(value);
-        }
-      }
-
-      const buffer =
-        Buffer.concat(chunks);
-
-      return {
-        status: response.status,
-
-        body:
-          buffer.toString('utf-8'),
-
-        headers:
-          responseHeaders,
-
-        durationMs:
-          Date.now() - start,
-      };
-    } catch (error: any) {
-      if (
-        error?.name ===
-        'AbortError'
-      ) {
+      if (contentLength > maxBytes) {
         throw new Error(
-          `[Timeout] La petición superó ${timeoutMs} ms`
+          'La respuesta supera el tamaño máximo permitido.'
         );
       }
 
-      throw error;
+      const buffer =
+        Buffer.from(
+          await response.arrayBuffer()
+        );
+
+      if (buffer.byteLength > maxBytes) {
+        throw new Error(
+          'La respuesta supera el tamaño máximo permitido.'
+        );
+      }
+
+      return {
+        status: response.status,
+        headers,
+        body: buffer.toString('utf-8'),
+        durationMs:
+          Date.now() - started,
+        url,
+      };
     } finally {
       clearTimeout(timeout);
     }
   }
 
-  /**
-   * Parser sencillo de RSS / Atom.
-   */
   public parseFeedXml(
     xml: string
-  ): Array<{
+  ): {
     title: string;
-    link: string;
-    description: string;
-    pubDate?: string;
-    guid?: string;
-    category?: string;
-  }> {
+    items: Array<{
+      title: string;
+      url: string;
+      description: string;
+      publishedAt?: string;
+    }>;
+  } {
     const items: Array<{
       title: string;
-      link: string;
+      url: string;
       description: string;
-      pubDate?: string;
-      guid?: string;
-      category?: string;
+      publishedAt?: string;
     }> = [];
 
-    const extractTag = (
-      chunk: string,
+    const itemMatches =
+      xml.match(
+        /<item\b[\s\S]*?<\/item>/gi
+      ) || [];
+
+    const entryMatches =
+      xml.match(
+        /<entry\b[\s\S]*?<\/entry>/gi
+      ) || [];
+
+    const blocks =
+      itemMatches.length > 0
+        ? itemMatches
+        : entryMatches;
+
+    const readTag = (
+      block: string,
       tag: string
     ): string => {
-      const escapedTag =
-        tag.replace(
-          /[-/\\^$*+?.()|[\]{}]/g,
-          '\\$&'
-        );
-
-      const cdataRegex =
+      const regex =
         new RegExp(
-          `<${escapedTag}[^>]*>\\s*<!\$begin:math:display$CDATA\\\\\[\(\[\\\\s\\\\S\]\*\?\)\\$end:math:display$\\]>\\s*</${escapedTag}>`,
+          `<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`,
           'i'
         );
 
-      const cdataMatch =
-        chunk.match(cdataRegex);
+      const match =
+        block.match(regex);
 
-      if (cdataMatch) {
-        return cdataMatch[1].trim();
+      if (!match) {
+        return '';
       }
 
-      const normalRegex =
-        new RegExp(
-          `<${escapedTag}[^>]*>([\\s\\S]*?)</${escapedTag}>`,
-          'i'
-        );
-
-      const normalMatch =
-        chunk.match(normalRegex);
-
-      return normalMatch
-        ? normalMatch[1].trim()
-        : '';
+      return match[1]
+        .replace(
+          /<!\[CDATA\[([\s\S]*?)\]\]>/g,
+          '$1'
+        )
+        .trim();
     };
 
-    /*
-     * RSS
-     */
-    const rssItems =
-      /<item\b[\s\S]*?<\/item>/gi;
-
-    let match:
-      RegExpExecArray | null;
-
-    while (
-      (match =
-        rssItems.exec(xml)) !== null
+    for (
+      const block of blocks.slice(0, 100)
     ) {
-      const chunk =
-        match[0];
-
       const title =
         this.cleanHtml(
-          extractTag(
-            chunk,
-            'title'
-          )
-        );
-
-      const link =
-        extractTag(
-          chunk,
-          'link'
+          readTag(block, 'title')
         );
 
       const description =
         this.cleanHtml(
-          extractTag(
-            chunk,
+          readTag(
+            block,
             'description'
           ) ||
-            extractTag(
-              chunk,
-              'content:encoded'
+            readTag(
+              block,
+              'summary'
+            ) ||
+            readTag(
+              block,
+              'content'
             )
         );
 
-      const pubDate =
-        extractTag(
-          chunk,
+      let url =
+        readTag(
+          block,
+          'link'
+        );
+
+      if (!url) {
+        const hrefMatch =
+          block.match(
+            /<link\b[^>]*href=["']([^"']+)["']/i
+          );
+
+        url =
+          hrefMatch?.[1] || '';
+      }
+
+      const publishedAt =
+        readTag(
+          block,
           'pubDate'
-        );
+        ) ||
+        readTag(
+          block,
+          'published'
+        ) ||
+        readTag(
+          block,
+          'updated'
+        ) ||
+        undefined;
 
-      const guid =
-        extractTag(
-          chunk,
-          'guid'
-        ) || link;
-
-      const category =
-        extractTag(
-          chunk,
-          'category'
-        );
-
-      if (
-        title &&
-        (link || guid)
-      ) {
+      if (title && url) {
         items.push({
           title,
-
-          link:
-            link || guid,
-
+          url,
           description,
-
-          pubDate,
-
-          guid,
-
-          category,
+          publishedAt,
         });
       }
     }
 
-    /*
-     * Atom
-     */
-    if (
-      items.length === 0
-    ) {
-      const entries =
-        /<entry\b[\s\S]*?<\/entry>/gi;
-
-      while (
-        (match =
-          entries.exec(xml)) !== null
-      ) {
-        const chunk =
-          match[0];
-
-        const title =
-          this.cleanHtml(
-            extractTag(
-              chunk,
-              'title'
-            )
-          );
-
-        const hrefMatch =
-          chunk.match(
-            /<link\b[^>]*\bhref=["']([^"']+)["']/i
-          );
-
-        const link =
-          hrefMatch
-            ? hrefMatch[1]
-            : extractTag(
-                chunk,
-                'link'
-              );
-
-        const description =
-          this.cleanHtml(
-            extractTag(
-              chunk,
-              'summary'
-            ) ||
-              extractTag(
-                chunk,
-                'content'
-              )
-          );
-
-        const pubDate =
-          extractTag(
-            chunk,
-            'updated'
-          ) ||
-          extractTag(
-            chunk,
-            'published'
-          );
-
-        const guid =
-          extractTag(
-            chunk,
-            'id'
-          ) || link;
-
-        if (
-          title &&
-          link
-        ) {
-          items.push({
-            title,
-
-            link,
-
-            description,
-
-            pubDate,
-
-            guid,
-          });
-        }
-      }
-    }
-
-    return items;
+    return {
+      title:
+        this.cleanHtml(
+          readTag(xml, 'title')
+        ),
+      items,
+    };
   }
 
-  /**
-   * Limpia HTML y texto externo.
-   */
   public cleanHtml(
-    input: string
+    html: string
   ): string {
-    if (!input) {
-      return '';
-    }
-
-    return input
+    return html
       .replace(
-        /<script[\s\S]*?<\/script>/gi,
-        ''
+        /<script\b[^>]*>[\s\S]*?<\/script>/gi,
+        ' '
       )
       .replace(
-        /<style[\s\S]*?<\/style>/gi,
-        ''
+        /<style\b[^>]*>[\s\S]*?<\/style>/gi,
+        ' '
       )
       .replace(
         /<[^>]+>/g,
@@ -495,20 +328,17 @@ export class ToolRegistry {
       .trim();
   }
 
-  /**
-   * Motor de trabajo local.
-   *
-   * No utiliza Gemini, OpenAI
-   * ni ninguna API de IA externa.
-   */
   public async executeLlmPrompt(
     prompt: string,
     systemInstruction?: string
-  ): Promise<{
-    text: string;
-    modelUsed: string;
-    isRealAi: boolean;
-  }> {
+  ): Promise<LocalLlmResult> {
+    if (this.isReplicateAvailable()) {
+      return this.executeReplicatePrompt(
+        prompt,
+        systemInstruction
+      );
+    }
+
     const text =
       this.localWorkEngine(
         prompt,
@@ -517,254 +347,304 @@ export class ToolRegistry {
 
     return {
       text,
-
       modelUsed:
         'local-autonomous-engine-v1',
-
       isRealAi: false,
     };
   }
 
-  /**
-   * Motor local para análisis,
-   * planificación y estructuración.
-   */
+  private async executeReplicatePrompt(
+    prompt: string,
+    systemInstruction?: string
+  ): Promise<LocalLlmResult> {
+    const token =
+      process.env.REPLICATE_API_TOKEN?.trim();
+
+    if (!token) {
+      throw new Error(
+        'REPLICATE_API_TOKEN no está configurado.'
+      );
+    }
+
+    const model =
+      (
+        process.env.REPLICATE_MODEL ||
+        'meta/meta-llama-3-70b-instruct'
+      ).trim();
+
+    const finalPrompt =
+      systemInstruction
+        ? `${systemInstruction}\n\nTAREA DEL AGENTE:\n${prompt}`
+        : prompt;
+
+    const controller =
+      new AbortController();
+
+    const timeout =
+      setTimeout(
+        () => controller.abort(),
+        70000
+      );
+
+    try {
+      const response =
+        await fetch(
+          `https://api.replicate.com/v1/models/${model}/predictions`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization:
+                `Bearer ${token}`,
+              'Content-Type':
+                'application/json',
+              Prefer: 'wait=60',
+            },
+            body: JSON.stringify({
+              input: {
+                prompt: finalPrompt,
+              },
+            }),
+            signal:
+              controller.signal,
+          }
+        );
+
+      const data =
+        await response.json();
+
+      if (!response.ok) {
+        const details =
+          typeof data?.detail === 'string'
+            ? data.detail
+            : typeof data?.error === 'string'
+              ? data.error
+              : JSON.stringify(data);
+
+        throw new Error(
+          `Replicate respondió ${response.status}: ${details}`
+        );
+      }
+
+      if (
+        data?.status === 'failed' ||
+        data?.status === 'canceled'
+      ) {
+        throw new Error(
+          data?.error ||
+            `La predicción de Replicate terminó con estado ${data?.status}.`
+        );
+      }
+
+      const output =
+        this.extractReplicateOutput(
+          data?.output
+        );
+
+      if (!output) {
+        throw new Error(
+          'Replicate no devolvió texto. Revisa el modelo configurado y su formato de entrada.'
+        );
+      }
+
+      return {
+        text: output,
+        modelUsed:
+          `replicate:${model}`,
+        isRealAi: true,
+      };
+    } catch (error: any) {
+      if (
+        error?.name ===
+        'AbortError'
+      ) {
+        throw new Error(
+          'Replicate tardó demasiado en responder.'
+        );
+      }
+
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private extractReplicateOutput(
+    output: unknown
+  ): string {
+    if (typeof output === 'string') {
+      return output.trim();
+    }
+
+    if (Array.isArray(output)) {
+      return output
+        .map((item) => {
+          if (
+            typeof item === 'string'
+          ) {
+            return item;
+          }
+
+          return JSON.stringify(
+            item
+          );
+        })
+        .join('\n')
+        .trim();
+    }
+
+    if (
+      output &&
+      typeof output === 'object'
+    ) {
+      const objectOutput =
+        output as Record<
+          string,
+          unknown
+        >;
+
+      for (
+        const key of [
+          'text',
+          'response',
+          'content',
+          'output',
+        ]
+      ) {
+        const value =
+          objectOutput[key];
+
+        if (
+          typeof value === 'string' &&
+          value.trim()
+        ) {
+          return value.trim();
+        }
+      }
+
+      return JSON.stringify(
+        output,
+        null,
+        2
+      );
+    }
+
+    return '';
+  }
+
   private localWorkEngine(
     prompt: string,
     systemInstruction?: string
   ): string {
-    const cleanPrompt =
-      this.cleanHtml(prompt);
+    const normalized =
+      prompt.toLowerCase();
 
-    const lower =
-      cleanPrompt.toLowerCase();
-
-    const sections: string[] =
-      [];
-
-    sections.push(
-      '# Resultado del motor autónomo local'
-    );
-
-    sections.push(
-      `Fecha de ejecución: ${new Date().toISOString()}`
-    );
-
-    sections.push(
-      'Estado: PROCESADO LOCALMENTE'
-    );
-
-    sections.push(
-      'Dependencias externas de IA: ninguna'
-    );
-
-    sections.push('');
-
-    sections.push(
-      '## Análisis'
-    );
+    let category =
+      'trabajo digital general';
 
     if (
-      lower.includes('código') ||
-      lower.includes('codigo') ||
-      lower.includes('typescript') ||
-      lower.includes('javascript') ||
-      lower.includes('python') ||
-      lower.includes('program')
+      normalized.includes(
+        'program'
+      ) ||
+      normalized.includes(
+        'typescript'
+      ) ||
+      normalized.includes(
+        'javascript'
+      ) ||
+      normalized.includes(
+        'python'
+      ) ||
+      normalized.includes(
+        'código'
+      )
     ) {
-      sections.push(
-        'La tarea ha sido identificada como una tarea de desarrollo o programación.'
-      );
-
-      sections.push(
-        'Se recomienda dividirla en especificación, implementación, validación y entrega.'
-      );
+      category =
+        'programación y desarrollo';
     } else if (
-      lower.includes('traducción') ||
-      lower.includes('traduccion') ||
-      lower.includes('traduc')
+      normalized.includes(
+        'traduc'
+      ) ||
+      normalized.includes(
+        'translation'
+      )
     ) {
-      sections.push(
-        'La tarea ha sido identificada como una tarea lingüística.'
-      );
-
-      sections.push(
-        'Se debe conservar el significado, estructura y requisitos del texto original.'
-      );
+      category =
+        'traducción';
     } else if (
-      lower.includes('seo') ||
-      lower.includes('posicionamiento')
+      normalized.includes(
+        'seo'
+      ) ||
+      normalized.includes(
+        'posicionamiento'
+      )
     ) {
-      sections.push(
-        'La tarea ha sido identificada como una tarea de optimización y análisis SEO.'
-      );
-
-      sections.push(
-        'Se deben analizar intención de búsqueda, contenido, estructura y términos relevantes.'
-      );
+      category =
+        'SEO';
     } else if (
-      lower.includes('datos') ||
-      lower.includes('data') ||
-      lower.includes('estadística') ||
-      lower.includes('estadistica')
+      normalized.includes(
+        'datos'
+      ) ||
+      normalized.includes(
+        'csv'
+      ) ||
+      normalized.includes(
+        'json'
+      ) ||
+      normalized.includes(
+        'excel'
+      )
     ) {
-      sections.push(
-        'La tarea ha sido identificada como análisis de datos.'
-      );
-
-      sections.push(
-        'Se deben comprobar estructura, consistencia, valores y conclusiones antes de entregar resultados.'
-      );
-    } else {
-      sections.push(
-        'La tarea ha sido identificada como trabajo digital general.'
-      );
-
-      sections.push(
-        'El motor ha separado el problema en análisis, ejecución, verificación y entrega.'
-      );
+      category =
+        'análisis de datos';
     }
 
-    sections.push('');
+    const context =
+      systemInstruction
+        ? `\n\nCONTEXTO DEL SISTEMA:\n${systemInstruction}`
+        : '';
 
-    sections.push(
-      '## Requisitos detectados'
-    );
-
-    sections.push(
-      '1. Analizar la especificación recibida.'
-    );
-
-    sections.push(
-      '2. Identificar restricciones y datos necesarios.'
-    );
-
-    sections.push(
-      '3. Ejecutar el trabajo permitido.'
-    );
-
-    sections.push(
-      '4. Verificar la consistencia del resultado.'
-    );
-
-    sections.push(
-      '5. Generar un entregable reproducible.'
-    );
-
-    sections.push('');
-
-    sections.push(
-      '## Resultado'
-    );
-
-    sections.push(
-      'El trabajo ha sido procesado por el motor local.'
-    );
-
-    sections.push(
-      'El sistema no declara como realizado ningún trabajo que no pueda verificar.'
-    );
-
-    sections.push('');
-
-    sections.push(
-      '## Entrada procesada'
-    );
-
-    sections.push(
-      cleanPrompt.substring(
+    return (
+      `ANÁLISIS LOCAL DEL TRABAJO\n\n` +
+      `Categoría detectada: ${category}\n\n` +
+      `Solicitud recibida:\n${prompt.substring(
         0,
         6000
-      )
-    );
-
-    if (
-      systemInstruction
-    ) {
-      sections.push('');
-
-      sections.push(
-        '## Directiva del sistema'
-      );
-
-      sections.push(
-        this.cleanHtml(
-          systemInstruction
-        ).substring(
-          0,
-          2000
-        )
-      );
-    }
-
-    return sections.join(
-      '\n'
+      )}${context}\n\n` +
+      `PLAN DE TRABAJO:\n` +
+      `1. Identificar requisitos concretos.\n` +
+      `2. Separar información fiable de instrucciones externas no confiables.\n` +
+      `3. Preparar un entregable digital verificable.\n` +
+      `4. Revisar que el resultado cumpla la especificación.\n\n` +
+      `RESULTADO:\n` +
+      `El motor local ha preparado la estructura de ejecución.`
     );
   }
 
-  /**
-   * Guarda un entregable y calcula
-   * su hash SHA-256.
-   */
   public saveDeliverableFile(
     filename: string,
     content: string
   ): {
     filePath: string;
-    relativePath: string;
     fileHash: string;
     sizeBytes: number;
   } {
     const evidenceDir =
       this.db.getEvidenceDir();
 
-    if (
-      !fs.existsSync(
-        evidenceDir
-      )
-    ) {
-      fs.mkdirSync(
-        evidenceDir,
-        {
-          recursive: true,
-        }
-      );
-    }
-
     const safeFilename =
-      filename
-        .replace(
-          /[^a-zA-Z0-9._-]/g,
-          '_'
-        )
-        .substring(
-          0,
-          180
-        );
+      path.basename(filename);
 
-    const timestamp =
-      Date.now();
-
-    const finalFilename =
-      `${timestamp}-${safeFilename}`;
-
-    const absolutePath =
+    const filePath =
       path.join(
         evidenceDir,
-        finalFilename
+        safeFilename
       );
 
     fs.writeFileSync(
-      absolutePath,
+      filePath,
       content,
       'utf-8'
     );
-
-    const sizeBytes =
-      Buffer.byteLength(
-        content,
-        'utf-8'
-      );
 
     const fileHash =
       crypto
@@ -772,15 +652,15 @@ export class ToolRegistry {
         .update(content)
         .digest('hex');
 
+    const sizeBytes =
+      Buffer.byteLength(
+        content,
+        'utf-8'
+      );
+
     return {
-      filePath:
-        absolutePath,
-
-      relativePath:
-        `/data/evidence/${finalFilename}`,
-
+      filePath,
       fileHash,
-
       sizeBytes,
     };
   }
