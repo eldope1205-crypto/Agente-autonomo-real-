@@ -3,8 +3,6 @@ import {
   Request,
   Response,
 } from 'express';
-import path from 'path';
-import fs from 'fs';
 
 import { Database } from '../db/database.js';
 import { AgentCore } from '../modules/agent/index.js';
@@ -25,22 +23,14 @@ export const apiRouter = Router();
 
 const db = Database.getInstance();
 const agent = AgentCore.getInstance();
-const scheduler =
-  AgentScheduler.getInstance();
-const sources =
-  SourceManager.getInstance();
-const tasks =
-  TaskManager.getInstance();
-const executor =
-  TaskExecutor.getInstance();
-const finance =
-  FinanceManager.getInstance();
-const subAgents =
-  SubAgentManager.getInstance();
-const learning =
-  LearningEngine.getInstance();
-const tools =
-  ToolRegistry.getInstance();
+const scheduler = AgentScheduler.getInstance();
+const sources = SourceManager.getInstance();
+const tasks = TaskManager.getInstance();
+const executor = TaskExecutor.getInstance();
+const finance = FinanceManager.getInstance();
+const subAgents = SubAgentManager.getInstance();
+const learning = LearningEngine.getInstance();
+const tools = ToolRegistry.getInstance();
 
 function computeSystemStatus(): SystemStatus {
   const state = db.getState();
@@ -52,26 +42,30 @@ function computeSystemStatus(): SystemStatus {
     cycleCount: state.agent.cycleCount,
     localEngineAvailable:
       tools.isLocalEngineAvailable(),
+
     activeSources:
       state.sources.filter(
         (source) =>
           source.enabled &&
           source.status === 'ACTIVE'
       ).length,
+
     pendingTasks:
       state.tasks.filter(
         (task) =>
           task.status === 'READY' ||
           task.status === 'AUTHORIZED'
       ).length,
+
     confirmedCapital:
       finance.getAvailableCapital(),
   };
 }
 
-/**
- * Estado general
- */
+/* =========================================================
+   ESTADO
+   ========================================================= */
+
 apiRouter.get(
   '/status',
   async (
@@ -80,30 +74,70 @@ apiRouter.get(
   ) => {
     try {
       res.json({
-        system:
-          computeSystemStatus(),
-        state:
-          db.getState(),
+        system: computeSystemStatus(),
+        state: db.getState(),
       });
     } catch (error: any) {
       res.status(500).json({
         error:
           error?.message ||
           'No se pudo obtener el estado.',
+        details:
+          error?.stack ||
+          String(error),
       });
     }
   }
 );
 
-/**
- * Iniciar agente
- *
- * El agente se inicia primero.
- * El scheduler se intenta activar después.
- *
- * Un fallo del scheduler no debe ocultar
- * que el agente sí se pudo iniciar.
- */
+/* =========================================================
+   DIAGNÓSTICO
+   ========================================================= */
+
+apiRouter.get(
+  '/diagnostics',
+  async (
+    _req: Request,
+    res: Response
+  ) => {
+    try {
+      const state = db.getState();
+
+      res.json({
+        server: 'ok',
+        database: 'ok',
+        localEngine:
+          tools.isLocalEngineAvailable(),
+        agentStatus:
+          state.agent.status,
+        scheduler:
+          Boolean(
+            state.agent.schedulerActive
+          ),
+        tasks:
+          state.tasks.length,
+        opportunities:
+          state.opportunities.length,
+        sources:
+          state.sources.length,
+      });
+    } catch (error: any) {
+      res.status(500).json({
+        error:
+          error?.message ||
+          'Error en diagnóstico.',
+        details:
+          error?.stack ||
+          String(error),
+      });
+    }
+  }
+);
+
+/* =========================================================
+   INICIAR AGENTE
+   ========================================================= */
+
 apiRouter.post(
   '/agent/start',
   async (
@@ -111,24 +145,45 @@ apiRouter.post(
     res: Response
   ) => {
     try {
+      console.log(
+        '[API] Solicitud para iniciar agente.'
+      );
+
       const status =
         await agent.start();
 
-      let schedulerStarted = true;
+      console.log(
+        '[API] Agente iniciado:',
+        status
+      );
+
+      let schedulerStarted = false;
       let schedulerError:
         | string
         | undefined;
 
       try {
         scheduler.start();
+
+        schedulerStarted = true;
+
+        console.log(
+          '[API] Scheduler iniciado.'
+        );
       } catch (error: any) {
         schedulerStarted = false;
+
         schedulerError =
           error?.message ||
           'No se pudo iniciar el programador.';
+
+        console.error(
+          '[API] Error del scheduler:',
+          error
+        );
       }
 
-      res.json({
+      res.status(200).json({
         status,
         schedulerStarted,
         schedulerError,
@@ -136,20 +191,28 @@ apiRouter.post(
           computeSystemStatus(),
       });
     } catch (error: any) {
+      console.error(
+        '[API] ERROR REAL AL INICIAR AGENTE:',
+        error
+      );
+
       res.status(500).json({
         error:
           error?.message ||
           'No se pudo iniciar el agente.',
+
         details:
-          error?.stack || undefined,
+          error?.stack ||
+          String(error),
       });
     }
   }
 );
 
-/**
- * Detener agente
- */
+/* =========================================================
+   DETENER AGENTE
+   ========================================================= */
+
 apiRouter.post(
   '/agent/stop',
   async (
@@ -160,7 +223,14 @@ apiRouter.post(
       const status =
         await agent.stop();
 
-      scheduler.stop();
+      try {
+        scheduler.stop();
+      } catch (error) {
+        console.error(
+          '[API] Error al detener scheduler:',
+          error
+        );
+      }
 
       res.json({
         status,
@@ -172,14 +242,18 @@ apiRouter.post(
         error:
           error?.message ||
           'No se pudo detener el agente.',
+        details:
+          error?.stack ||
+          String(error),
       });
     }
   }
 );
 
-/**
- * Pausar agente
- */
+/* =========================================================
+   PAUSAR AGENTE
+   ========================================================= */
+
 apiRouter.post(
   '/agent/pause',
   async (
@@ -200,14 +274,18 @@ apiRouter.post(
         error:
           error?.message ||
           'No se pudo pausar el agente.',
+        details:
+          error?.stack ||
+          String(error),
       });
     }
   }
 );
 
-/**
- * Reanudar agente
- */
+/* =========================================================
+   REANUDAR AGENTE
+   ========================================================= */
+
 apiRouter.post(
   '/agent/resume',
   async (
@@ -218,15 +296,21 @@ apiRouter.post(
       const status =
         await agent.resume();
 
+      let schedulerStarted = false;
+
       try {
         scheduler.start();
-      } catch {
-        // El agente puede permanecer RUNNING
-        // aunque el scheduler no pueda arrancar.
+        schedulerStarted = true;
+      } catch (error) {
+        console.error(
+          '[API] Error al reanudar scheduler:',
+          error
+        );
       }
 
       res.json({
         status,
+        schedulerStarted,
         system:
           computeSystemStatus(),
       });
@@ -235,14 +319,18 @@ apiRouter.post(
         error:
           error?.message ||
           'No se pudo reanudar el agente.',
+        details:
+          error?.stack ||
+          String(error),
       });
     }
   }
 );
 
-/**
- * Ejecutar un ciclo manual
- */
+/* =========================================================
+   EJECUTAR CICLO
+   ========================================================= */
+
 apiRouter.post(
   '/agent/cycle',
   async (
@@ -263,14 +351,18 @@ apiRouter.post(
         error:
           error?.message ||
           'No se pudo ejecutar el ciclo.',
+        details:
+          error?.stack ||
+          String(error),
       });
     }
   }
 );
 
-/**
- * Ejecutar todas las tareas
- */
+/* =========================================================
+   TAREAS
+   ========================================================= */
+
 apiRouter.post(
   '/tasks/execute-all',
   async (
@@ -291,14 +383,14 @@ apiRouter.post(
         error:
           error?.message ||
           'No se pudieron ejecutar las tareas.',
+        details:
+          error?.stack ||
+          String(error),
       });
     }
   }
 );
 
-/**
- * Ejecutar una tarea
- */
 apiRouter.post(
   '/tasks/:id/execute',
   async (
@@ -328,14 +420,14 @@ apiRouter.post(
         error:
           error?.message ||
           'No se pudo ejecutar la tarea.',
+        details:
+          error?.stack ||
+          String(error),
       });
     }
   }
 );
 
-/**
- * Autorizar tarea
- */
 apiRouter.post(
   '/tasks/:id/authorize',
   async (
@@ -358,14 +450,14 @@ apiRouter.post(
         error:
           error?.message ||
           'No se pudo autorizar la tarea.',
+        details:
+          error?.stack ||
+          String(error),
       });
     }
   }
 );
 
-/**
- * Cancelar tarea
- */
 apiRouter.post(
   '/tasks/:id/cancel',
   async (
@@ -388,14 +480,14 @@ apiRouter.post(
         error:
           error?.message ||
           'No se pudo cancelar la tarea.',
+        details:
+          error?.stack ||
+          String(error),
       });
     }
   }
 );
 
-/**
- * Resolver intervención humana
- */
 apiRouter.post(
   '/tasks/:id/resolve-human',
   async (
@@ -415,14 +507,18 @@ apiRouter.post(
         error:
           error?.message ||
           'No se pudo continuar la tarea.',
+        details:
+          error?.stack ||
+          String(error),
       });
     }
   }
 );
 
-/**
- * Fuentes
- */
+/* =========================================================
+   FUENTES
+   ========================================================= */
+
 apiRouter.get(
   '/sources',
   async (
@@ -484,14 +580,18 @@ apiRouter.post(
         error:
           error?.message ||
           'No se pudo probar la fuente.',
+        details:
+          error?.stack ||
+          String(error),
       });
     }
   }
 );
 
-/**
- * Finanzas
- */
+/* =========================================================
+   FINANZAS
+   ========================================================= */
+
 apiRouter.get(
   '/finance',
   async (
@@ -507,6 +607,9 @@ apiRouter.get(
         error:
           error?.message ||
           'No se pudieron obtener las finanzas.',
+        details:
+          error?.stack ||
+          String(error),
       });
     }
   }
@@ -520,7 +623,8 @@ apiRouter.get(
   ) => {
     try {
       res.json(
-        db.getState().finance
+        db.getState()
+          .finance
           .transactions
       );
     } catch (error: any) {
@@ -533,9 +637,10 @@ apiRouter.get(
   }
 );
 
-/**
- * Aprendizaje
- */
+/* =========================================================
+   APRENDIZAJE
+   ========================================================= */
+
 apiRouter.get(
   '/learning',
   async (
@@ -546,6 +651,7 @@ apiRouter.get(
       res.json({
         history:
           db.getState().learning,
+
         proposals:
           learning.getProposals(),
       });
@@ -554,14 +660,18 @@ apiRouter.get(
         error:
           error?.message ||
           'No se pudo obtener el aprendizaje.',
+        details:
+          error?.stack ||
+          String(error),
       });
     }
   }
 );
 
-/**
- * Subagentes
- */
+/* =========================================================
+   SUBAGENTES
+   ========================================================= */
+
 apiRouter.get(
   '/agents',
   async (
@@ -582,9 +692,10 @@ apiRouter.get(
   }
 );
 
-/**
- * Herramientas
- */
+/* =========================================================
+   HERRAMIENTAS
+   ========================================================= */
+
 apiRouter.get(
   '/tools',
   async (
@@ -605,9 +716,10 @@ apiRouter.get(
   }
 );
 
-/**
- * Evidencias
- */
+/* =========================================================
+   EVIDENCIAS
+   ========================================================= */
+
 apiRouter.get(
   '/evidence',
   async (
@@ -628,9 +740,10 @@ apiRouter.get(
   }
 );
 
-/**
- * Eventos
- */
+/* =========================================================
+   EVENTOS
+   ========================================================= */
+
 apiRouter.get(
   '/events',
   async (
@@ -651,9 +764,10 @@ apiRouter.get(
   }
 );
 
-/**
- * Estado completo
- */
+/* =========================================================
+   ESTADO COMPLETO
+   ========================================================= */
+
 apiRouter.get(
   '/state',
   async (
@@ -669,14 +783,18 @@ apiRouter.get(
         error:
           error?.message ||
           'No se pudo obtener el estado.',
+        details:
+          error?.stack ||
+          String(error),
       });
     }
   }
 );
 
-/**
- * Configuración
- */
+/* =========================================================
+   CONFIGURACIÓN
+   ========================================================= */
+
 apiRouter.get(
   '/settings',
   async (
@@ -730,48 +848,27 @@ apiRouter.post(
         error:
           error?.message ||
           'No se pudo guardar la configuración.',
+        details:
+          error?.stack ||
+          String(error),
       });
     }
   }
 );
 
-/**
- * Diagnóstico local
- */
+/* =========================================================
+   RUTA DE COMPROBACIÓN
+   ========================================================= */
+
 apiRouter.get(
-  '/diagnostics',
-  async (
+  '/health',
+  (
     _req: Request,
     res: Response
   ) => {
-    try {
-      const state =
-        db.getState();
-
-      res.json({
-        server: 'ok',
-        database: 'ok',
-        localEngine:
-          tools.isLocalEngineAvailable(),
-        agentStatus:
-          state.agent.status,
-        scheduler:
-          scheduler.isRunning(),
-        tasks:
-          state.tasks.length,
-        opportunities:
-          state.opportunities.length,
-        sources:
-          state.sources.length,
-      });
-    } catch (error: any) {
-      res.status(500).json({
-        error:
-          error?.message ||
-          'Error en diagnóstico.',
-        details:
-          error?.stack || undefined,
-      });
-    }
+    res.json({
+      ok: true,
+      server: 'Agente Autónomo',
+    });
   }
 );
