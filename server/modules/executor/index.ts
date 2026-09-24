@@ -30,9 +30,6 @@ export class TaskExecutor {
     return this.isExecuting;
   }
 
-  /**
-   * Comprueba si una tarea puede ejecutarse.
-   */
   public canExecuteTask(
     task: Task
   ): {
@@ -69,28 +66,22 @@ export class TaskExecutor {
       };
     }
 
-    const availableCapabilities =
-      new Set(
-        state.capabilities
-          .filter(
-            (capability) =>
-              capability.enabled &&
-              capability.status === 'AVAILABLE'
-          )
-          .map((capability) => capability.id)
-      );
+    const availableCapabilities = new Set(
+      state.capabilities
+        .filter(
+          (capability) =>
+            capability.enabled &&
+            capability.status === 'AVAILABLE'
+        )
+        .map((capability) => capability.id)
+    );
 
-    const availableTools =
-      new Set(
-        state.tools
-          .filter((tool) => tool.enabled)
-          .map((tool) => tool.id)
-      );
+    const availableTools = new Set(
+      state.tools
+        .filter((tool) => tool.enabled)
+        .map((tool) => tool.id)
+    );
 
-    /*
-     * El motor local siempre existe aunque
-     * no haya una API de IA configurada.
-     */
     availableTools.add('llm_worker');
     availableTools.add('text_processor');
     availableTools.add('evidence_recorder');
@@ -100,14 +91,8 @@ export class TaskExecutor {
     for (const step of task.plan) {
       if (
         step.capability &&
-        !availableCapabilities.has(
-          step.capability
-        )
+        !availableCapabilities.has(step.capability)
       ) {
-        /*
-         * Algunas capacidades básicas pueden
-         * realizarse mediante herramientas locales.
-         */
         const localCapabilities = [
           'WEB_RESEARCH',
           'DOCUMENT_PROCESSING',
@@ -119,11 +104,7 @@ export class TaskExecutor {
           'SEO_RESEARCH',
         ];
 
-        if (
-          !localCapabilities.includes(
-            step.capability
-          )
-        ) {
+        if (!localCapabilities.includes(step.capability)) {
           return {
             canExecute: false,
             reason:
@@ -134,9 +115,7 @@ export class TaskExecutor {
 
       if (
         step.requiredTool &&
-        !availableTools.has(
-          step.requiredTool
-        )
+        !availableTools.has(step.requiredTool)
       ) {
         return {
           canExecute: false,
@@ -146,20 +125,11 @@ export class TaskExecutor {
       }
     }
 
-    /*
-     * No bloqueamos automáticamente una tarea
-     * READY por depender de Gemini.
-     *
-     * El motor local ya no necesita Gemini.
-     */
     return {
       canExecute: true,
     };
   }
 
-  /**
-   * Ejecuta una tarea completa.
-   */
   public async executeTask(
     task: Task
   ): Promise<{
@@ -178,8 +148,7 @@ export class TaskExecutor {
 
     this.isExecuting = true;
 
-    const check =
-      this.canExecuteTask(task);
+    const check = this.canExecuteTask(task);
 
     if (!check.canExecute) {
       task.status = check.requiresHuman
@@ -203,9 +172,7 @@ export class TaskExecutor {
           )}": ${task.error}`,
         metadata: {
           taskId: task.id,
-          opportunityUrl:
-            task.opportunityUrl ||
-            task.evidence[0],
+          opportunityUrl: task.opportunityUrl,
         },
       });
 
@@ -221,8 +188,7 @@ export class TaskExecutor {
     }
 
     task.status = 'RUNNING';
-    task.startedAt =
-      new Date().toISOString();
+    task.startedAt = new Date().toISOString();
     task.error = undefined;
 
     this.db.addEvent({
@@ -246,18 +212,16 @@ export class TaskExecutor {
     try {
       for (const step of task.plan) {
         step.status = 'RUNNING';
-        step.startedAt =
-          new Date().toISOString();
+        step.startedAt = new Date().toISOString();
 
         this.db.save();
 
         try {
-          const result =
-            await this.executeStep(
-              step,
-              task,
-              accumulatedContent
-            );
+          const result = await this.executeStep(
+            step,
+            task,
+            accumulatedContent
+          );
 
           step.output = result.output;
           step.status = 'COMPLETED';
@@ -281,9 +245,6 @@ export class TaskExecutor {
         }
       }
 
-      /*
-       * Crear entregable real.
-       */
       const filename =
         `deliverable-${task.id}.md`;
 
@@ -318,8 +279,7 @@ ${accumulatedContent}
 
 Este documento fue generado por el entorno de ejecución local.
 
-El hash SHA-256 identifica exactamente este archivo.
-
+El hash SHA-256 identifica la integridad exacta del archivo.
 `;
 
       const savedFile =
@@ -328,23 +288,14 @@ El hash SHA-256 identifica exactamente este archivo.
           fullDocument
         );
 
-      /*
-       * Verificar que el archivo existe.
-       */
       if (
-        !fs.existsSync(
-          savedFile.filePath
-        )
+        !fs.existsSync(savedFile.filePath)
       ) {
         throw new Error(
           'El archivo entregable no pudo verificarse en disco.'
         );
       }
 
-      /*
-       * Volver a leer el archivo y verificar
-       * que el hash coincide.
-       */
       const savedContent =
         fs.readFileSync(
           savedFile.filePath,
@@ -358,8 +309,7 @@ El hash SHA-256 identifica exactamente este archivo.
           .digest('hex');
 
       if (
-        verifiedHash !==
-        savedFile.fileHash
+        verifiedHash !== savedFile.fileHash
       ) {
         throw new Error(
           'La verificación SHA-256 del entregable ha fallado.'
@@ -370,13 +320,10 @@ El hash SHA-256 identifica exactamente este archivo.
         savedFile.filePath;
 
       task.deliverablePreview =
-        fullDocument.substring(
-          0,
-          1000
-        );
+        fullDocument.substring(0, 1000);
 
       task.result =
-        `Entregable generado y verificado. SHA-256: ${savedFile.fileHash}`;
+        `Entregable generado y verificado. Hash SHA-256: ${savedFile.fileHash}`;
 
       if (
         !task.evidence.includes(
@@ -388,9 +335,6 @@ El hash SHA-256 identifica exactamente este archivo.
         );
       }
 
-      /*
-       * Registrar evidencia.
-       */
       const evidenceItem = {
         id:
           `evi-${Date.now()}-${crypto
@@ -406,21 +350,15 @@ El hash SHA-256 identifica exactamente este archivo.
           `Entregable verificado: ${task.title}`,
 
         url:
-          task.opportunityUrl ||
-          task.evidence[0] ||
-          '',
+          task.opportunityUrl || '',
 
         timestamp:
           new Date().toISOString(),
 
         contentSnapshot:
-          savedContent.substring(
-            0,
-            3000
-          ),
+          savedContent.substring(0, 3000),
 
-        fileHash:
-          verifiedHash,
+        fileHash: verifiedHash,
 
         filePath:
           savedFile.filePath,
@@ -435,7 +373,7 @@ El hash SHA-256 identifica exactamente este archivo.
           'VERIFIED' as const,
 
         notes:
-          'Archivo existente y SHA-256 comprobado.',
+          'Archivo existente y hash SHA-256 de integridad comprobado.',
       };
 
       this.db
@@ -443,22 +381,11 @@ El hash SHA-256 identifica exactamente este archivo.
         .evidence
         .unshift(evidenceItem);
 
-      /*
-       * SUBMITTED significa preparado
-       * para entrega.
-       *
-       * No significa que el cliente lo haya
-       * aceptado.
-       */
       task.status = 'SUBMITTED';
 
       this.db.save();
 
-      /*
-       * Verificación interna.
-       */
-      task.status =
-        'WAITING_VERIFICATION';
+      task.status = 'WAITING_VERIFICATION';
 
       this.db.save();
 
@@ -474,17 +401,9 @@ El hash SHA-256 identifica exactamente este archivo.
         );
       }
 
-      /*
-       * COMPLETED significa que el trabajo
-       * técnico local terminó.
-       *
-       * El pago continúa sin confirmar.
-       */
       task.status = 'COMPLETED';
 
-      if (
-        task.estimatedAmount > 0
-      ) {
+      if (task.estimatedAmount > 0) {
         task.paymentStatus = 'PENDING';
       }
 
@@ -549,9 +468,6 @@ El hash SHA-256 identifica exactamente este archivo.
     }
   }
 
-  /**
-   * Ejecuta todas las tareas disponibles.
-   */
   public async executeAllTasks(): Promise<{
     processed: number;
     executed: number;
@@ -580,11 +496,9 @@ El hash SHA-256 identifica exactamente este archivo.
 
       if (!check.canExecute) {
         if (check.requiresHuman) {
-          task.status =
-            'NEEDS_HUMAN';
+          task.status = 'NEEDS_HUMAN';
         } else {
-          task.status =
-            'BLOCKED';
+          task.status = 'BLOCKED';
         }
 
         task.error =
@@ -639,10 +553,6 @@ El hash SHA-256 identifica exactamente este archivo.
     };
   }
 
-  /**
-   * Continúa una tarea después de una
-   * intervención humana real.
-   */
   public async continueTaskAfterHuman(
     taskId: string,
     userNotes?: string
@@ -669,18 +579,15 @@ El hash SHA-256 identifica exactamente este archivo.
     }
 
     if (
-      task.humanRequirement
-        ?.needed
+      task.humanRequirement?.needed
     ) {
-      task.humanRequirement
-        .isResolved = true;
+      task.humanRequirement.isResolved =
+        true;
 
-      task.humanRequirement
-        .resolvedAt =
+      task.humanRequirement.resolvedAt =
         new Date().toISOString();
 
-      task.humanRequirement
-        .notes =
+      task.humanRequirement.notes =
         userNotes ||
         'Intervención completada.';
     }
@@ -708,9 +615,6 @@ El hash SHA-256 identifica exactamente este archivo.
     return this.executeTask(task);
   }
 
-  /**
-   * Ejecuta un paso concreto.
-   */
   private async executeStep(
     step: PlanStep,
     task: Task,
@@ -718,9 +622,7 @@ El hash SHA-256 identifica exactamente este archivo.
   ): Promise<{
     output: string;
   }> {
-    switch (
-      step.requiredTool
-    ) {
+    switch (step.requiredTool) {
       case 'llm_worker': {
         const prompt =
           `TAREA:
@@ -771,8 +673,7 @@ ${previousContext || 'Sin contexto previo.'}`;
 
       case 'http_fetcher': {
         const url =
-          task.opportunityUrl ||
-          task.evidence[0];
+          task.opportunityUrl;
 
         if (!url) {
           return {
@@ -807,7 +708,7 @@ ${previousContext || 'Sin contexto previo.'}`;
       case 'evidence_recorder': {
         return {
           output:
-            'Evidencia preparada para almacenamiento y verificación SHA-256.',
+            'Evidencia preparada para almacenamiento y verificación de integridad mediante SHA-256.',
         };
       }
 
@@ -827,9 +728,6 @@ ${previousContext || 'Sin contexto previo.'}`;
     }
   }
 
-  /**
-   * Verificación básica del resultado.
-   */
   private verifyTaskOutput(
     task: Task,
     content: string
