@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+
 import { Database } from '../../db/database.js';
 import { SecurityManager } from '../security/index.js';
 
@@ -23,23 +24,23 @@ export class ToolRegistry {
   }
 
   /**
-   * El sistema ya no depende de Gemini ni de una API externa.
-   * El motor local siempre está disponible.
+   * Motor local disponible.
+   * No depende de Gemini ni de otra API de IA.
    */
   public isLocalEngineAvailable(): boolean {
     return true;
   }
 
   /**
-   * Compatibilidad con el resto del proyecto.
-   * No utiliza ninguna API externa.
+   * Compatibilidad con código antiguo.
+   * Gemini ya no se utiliza.
    */
   public isGeminiAvailable(): boolean {
     return false;
   }
 
   /**
-   * Fetch HTTP seguro.
+   * Realiza una petición HTTP después de validar la URL.
    */
   public async httpFetch(
     url: string,
@@ -54,67 +55,121 @@ export class ToolRegistry {
     headers: Record<string, string>;
     durationMs: number;
   }> {
-    const timeoutMs = options.timeoutMs || 12000;
-    const maxBytes = options.maxBytes || 2 * 1024 * 1024;
+    const timeoutMs =
+      options.timeoutMs || 12000;
 
-    const validation = this.security.validateUrl(url);
+    const maxBytes =
+      options.maxBytes || 2 * 1024 * 1024;
 
-    if (!validation.allowed) {
+    const validation =
+      this.security.validateUrl(url);
+
+    if (
+      !validation.allowed ||
+      !validation.sanitizedUrl
+    ) {
       throw new Error(
-        `[Seguridad] Acceso bloqueado: ${validation.reason}`
+        `[Seguridad] Acceso bloqueado: ${
+          validation.reason || 'URL no permitida.'
+        }`
       );
     }
 
     const start = Date.now();
 
-    const controller = new AbortController();
+    const controller =
+      new AbortController();
 
     const timeout = setTimeout(() => {
       controller.abort();
     }, timeoutMs);
 
     try {
-      const response = await fetch(validation.sanitizedUrl!, {
-        method: 'GET',
-        headers: {
-          'User-Agent': 'AutonomousAgent/1.0',
-          Accept:
-            'text/html,application/xhtml+xml,application/xml,application/json,*/*',
-          ...options.headers,
-        },
-        signal: controller.signal,
-        redirect: 'follow',
-      });
+      const response = await fetch(
+        validation.sanitizedUrl,
+        {
+          method: 'GET',
 
-      const responseHeaders: Record<string, string> = {};
+          headers: {
+            'User-Agent':
+              'AutonomousAgent/1.0',
 
-      response.headers.forEach((value, key) => {
-        responseHeaders[key] = value;
-      });
+            Accept:
+              'text/html,application/xhtml+xml,application/xml,application/json,*/*',
 
-      const reader = response.body?.getReader();
+            ...options.headers,
+          },
+
+          signal: controller.signal,
+
+          /*
+           * No seguimos redirecciones automáticamente.
+           * Cada nueva URL deberá validarse explícitamente.
+           */
+          redirect: 'manual',
+        }
+      );
+
+      const responseHeaders:
+        Record<string, string> = {};
+
+      response.headers.forEach(
+        (value, key) => {
+          responseHeaders[key] = value;
+        }
+      );
+
+      /*
+       * Si existe redirección, devolvemos la respuesta
+       * sin seguirla automáticamente.
+       */
+      if (
+        response.status >= 300 &&
+        response.status < 400
+      ) {
+        return {
+          status: response.status,
+          body: '',
+          headers: responseHeaders,
+          durationMs:
+            Date.now() - start,
+        };
+      }
+
+      const reader =
+        response.body?.getReader();
 
       if (!reader) {
         return {
           status: response.status,
           body: '',
           headers: responseHeaders,
-          durationMs: Date.now() - start,
+          durationMs:
+            Date.now() - start,
         };
       }
 
       let receivedBytes = 0;
+
       const chunks: Uint8Array[] = [];
 
       while (true) {
-        const { done, value } = await reader.read();
+        const {
+          done,
+          value,
+        } = await reader.read();
 
-        if (done) break;
+        if (done) {
+          break;
+        }
 
         if (value) {
-          receivedBytes += value.length;
+          receivedBytes +=
+            value.length;
 
-          if (receivedBytes > maxBytes) {
+          if (
+            receivedBytes > maxBytes
+          ) {
             await reader.cancel();
 
             throw new Error(
@@ -128,16 +183,26 @@ export class ToolRegistry {
         }
       }
 
-      const buffer = Buffer.concat(chunks);
+      const buffer =
+        Buffer.concat(chunks);
 
       return {
         status: response.status,
-        body: buffer.toString('utf-8'),
-        headers: responseHeaders,
-        durationMs: Date.now() - start,
+
+        body:
+          buffer.toString('utf-8'),
+
+        headers:
+          responseHeaders,
+
+        durationMs:
+          Date.now() - start,
       };
     } catch (error: any) {
-      if (error?.name === 'AbortError') {
+      if (
+        error?.name ===
+        'AbortError'
+      ) {
         throw new Error(
           `[Timeout] La petición superó ${timeoutMs} ms`
         );
@@ -150,7 +215,7 @@ export class ToolRegistry {
   }
 
   /**
-   * Parser RSS / Atom.
+   * Parser sencillo de RSS / Atom.
    */
   public parseFeedXml(
     xml: string
@@ -175,105 +240,198 @@ export class ToolRegistry {
       chunk: string,
       tag: string
     ): string => {
-      const escapedTag = tag.replace(':', '\\:');
+      const escapedTag =
+        tag.replace(
+          /[-/\\^$*+?.()|[\]{}]/g,
+          '\\$&'
+        );
 
-      const cdata = new RegExp(
-        `<${escapedTag}[^>]*>\\s*<!\$begin:math:display$CDATA\\\\\[\(\[\\\\s\\\\S\]\*\?\)\\$end:math:display$\\]>\\s*<\\/${escapedTag}>`,
-        'i'
-      );
+      const cdataRegex =
+        new RegExp(
+          `<${escapedTag}[^>]*>\\s*<!\$begin:math:display$CDATA\\\\\[\(\[\\\\s\\\\S\]\*\?\)\\$end:math:display$\\]>\\s*</${escapedTag}>`,
+          'i'
+        );
 
-      const cdataMatch = chunk.match(cdata);
+      const cdataMatch =
+        chunk.match(cdataRegex);
 
       if (cdataMatch) {
         return cdataMatch[1].trim();
       }
 
-      const normal = new RegExp(
-        `<${escapedTag}[^>]*>([\\s\\S]*?)<\\/${escapedTag}>`,
-        'i'
-      );
+      const normalRegex =
+        new RegExp(
+          `<${escapedTag}[^>]*>([\\s\\S]*?)</${escapedTag}>`,
+          'i'
+        );
 
-      const normalMatch = chunk.match(normal);
+      const normalMatch =
+        chunk.match(normalRegex);
 
-      return normalMatch ? normalMatch[1].trim() : '';
+      return normalMatch
+        ? normalMatch[1].trim()
+        : '';
     };
 
-    const rssItems = /<item[\s\S]*?<\/item>/gi;
+    /*
+     * RSS
+     */
+    const rssItems =
+      /<item\b[\s\S]*?<\/item>/gi;
 
-    let match: RegExpExecArray | null;
+    let match:
+      RegExpExecArray | null;
 
-    while ((match = rssItems.exec(xml)) !== null) {
-      const chunk = match[0];
+    while (
+      (match =
+        rssItems.exec(xml)) !== null
+    ) {
+      const chunk =
+        match[0];
 
-      const title = this.cleanHtml(
-        extractTag(chunk, 'title')
-      );
+      const title =
+        this.cleanHtml(
+          extractTag(
+            chunk,
+            'title'
+          )
+        );
 
-      const link = extractTag(chunk, 'link');
+      const link =
+        extractTag(
+          chunk,
+          'link'
+        );
 
-      const description = this.cleanHtml(
-        extractTag(chunk, 'description') ||
-          extractTag(chunk, 'content:encoded')
-      );
+      const description =
+        this.cleanHtml(
+          extractTag(
+            chunk,
+            'description'
+          ) ||
+            extractTag(
+              chunk,
+              'content:encoded'
+            )
+        );
 
-      const pubDate = extractTag(chunk, 'pubDate');
+      const pubDate =
+        extractTag(
+          chunk,
+          'pubDate'
+        );
 
       const guid =
-        extractTag(chunk, 'guid') || link;
+        extractTag(
+          chunk,
+          'guid'
+        ) || link;
 
-      const category = extractTag(
-        chunk,
-        'category'
-      );
+      const category =
+        extractTag(
+          chunk,
+          'category'
+        );
 
-      if (title && (link || guid)) {
+      if (
+        title &&
+        (link || guid)
+      ) {
         items.push({
           title,
-          link: link || guid,
+
+          link:
+            link || guid,
+
           description,
+
           pubDate,
+
           guid,
+
           category,
         });
       }
     }
 
-    if (items.length === 0) {
-      const entries = /<entry[\s\S]*?<\/entry>/gi;
+    /*
+     * Atom
+     */
+    if (
+      items.length === 0
+    ) {
+      const entries =
+        /<entry\b[\s\S]*?<\/entry>/gi;
 
-      while ((match = entries.exec(xml)) !== null) {
-        const chunk = match[0];
+      while (
+        (match =
+          entries.exec(xml)) !== null
+      ) {
+        const chunk =
+          match[0];
 
-        const title = this.cleanHtml(
-          extractTag(chunk, 'title')
-        );
+        const title =
+          this.cleanHtml(
+            extractTag(
+              chunk,
+              'title'
+            )
+          );
 
-        const hrefMatch = chunk.match(
-          /<link[^>]*href=["']([^"']+)["']/i
-        );
+        const hrefMatch =
+          chunk.match(
+            /<link\b[^>]*\bhref=["']([^"']+)["']/i
+          );
 
-        const link = hrefMatch
-          ? hrefMatch[1]
-          : extractTag(chunk, 'link');
+        const link =
+          hrefMatch
+            ? hrefMatch[1]
+            : extractTag(
+                chunk,
+                'link'
+              );
 
-        const description = this.cleanHtml(
-          extractTag(chunk, 'summary') ||
-            extractTag(chunk, 'content')
-        );
+        const description =
+          this.cleanHtml(
+            extractTag(
+              chunk,
+              'summary'
+            ) ||
+              extractTag(
+                chunk,
+                'content'
+              )
+          );
 
         const pubDate =
-          extractTag(chunk, 'updated') ||
-          extractTag(chunk, 'published');
+          extractTag(
+            chunk,
+            'updated'
+          ) ||
+          extractTag(
+            chunk,
+            'published'
+          );
 
         const guid =
-          extractTag(chunk, 'id') || link;
+          extractTag(
+            chunk,
+            'id'
+          ) || link;
 
-        if (title && link) {
+        if (
+          title &&
+          link
+        ) {
           items.push({
             title,
+
             link,
+
             description,
+
             pubDate,
+
             guid,
           });
         }
@@ -286,8 +444,12 @@ export class ToolRegistry {
   /**
    * Limpia HTML y texto externo.
    */
-  public cleanHtml(input: string): string {
-    if (!input) return '';
+  public cleanHtml(
+    input: string
+  ): string {
+    if (!input) {
+      return '';
+    }
 
     return input
       .replace(
@@ -298,22 +460,46 @@ export class ToolRegistry {
         /<style[\s\S]*?<\/style>/gi,
         ''
       )
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/&nbsp;/gi, ' ')
-      .replace(/&amp;/gi, '&')
-      .replace(/&lt;/gi, '<')
-      .replace(/&gt;/gi, '>')
-      .replace(/&quot;/gi, '"')
-      .replace(/&#39;/gi, "'")
-      .replace(/\s+/g, ' ')
+      .replace(
+        /<[^>]+>/g,
+        ' '
+      )
+      .replace(
+        /&nbsp;/gi,
+        ' '
+      )
+      .replace(
+        /&amp;/gi,
+        '&'
+      )
+      .replace(
+        /&lt;/gi,
+        '<'
+      )
+      .replace(
+        /&gt;/gi,
+        '>'
+      )
+      .replace(
+        /&quot;/gi,
+        '"'
+      )
+      .replace(
+        /&#39;/gi,
+        "'"
+      )
+      .replace(
+        /\s+/g,
+        ' '
+      )
       .trim();
   }
 
   /**
    * Motor de trabajo local.
    *
-   * No necesita Gemini, OpenAI ni ninguna API.
-   * Procesa la tarea utilizando reglas locales.
+   * No utiliza Gemini, OpenAI
+   * ni ninguna API de IA externa.
    */
   public async executeLlmPrompt(
     prompt: string,
@@ -323,31 +509,38 @@ export class ToolRegistry {
     modelUsed: string;
     isRealAi: boolean;
   }> {
-    const text = this.localWorkEngine(
-      prompt,
-      systemInstruction
-    );
+    const text =
+      this.localWorkEngine(
+        prompt,
+        systemInstruction
+      );
 
     return {
       text,
-      modelUsed: 'local-autonomous-engine-v1',
+
+      modelUsed:
+        'local-autonomous-engine-v1',
+
       isRealAi: false,
     };
   }
 
   /**
-   * Motor local para análisis, planificación,
-   * redacción y estructuración.
+   * Motor local para análisis,
+   * planificación y estructuración.
    */
   private localWorkEngine(
     prompt: string,
     systemInstruction?: string
   ): string {
-    const cleanPrompt = this.cleanHtml(prompt);
+    const cleanPrompt =
+      this.cleanHtml(prompt);
 
-    const lower = cleanPrompt.toLowerCase();
+    const lower =
+      cleanPrompt.toLowerCase();
 
-    const sections: string[] = [];
+    const sections: string[] =
+      [];
 
     sections.push(
       '# Resultado del motor autónomo local'
@@ -367,10 +560,13 @@ export class ToolRegistry {
 
     sections.push('');
 
-    sections.push('## Análisis');
+    sections.push(
+      '## Análisis'
+    );
 
     if (
       lower.includes('código') ||
+      lower.includes('codigo') ||
       lower.includes('typescript') ||
       lower.includes('javascript') ||
       lower.includes('python') ||
@@ -385,6 +581,7 @@ export class ToolRegistry {
       );
     } else if (
       lower.includes('traducción') ||
+      lower.includes('traduccion') ||
       lower.includes('traduc')
     ) {
       sections.push(
@@ -408,7 +605,8 @@ export class ToolRegistry {
     } else if (
       lower.includes('datos') ||
       lower.includes('data') ||
-      lower.includes('estadística')
+      lower.includes('estadística') ||
+      lower.includes('estadistica')
     ) {
       sections.push(
         'La tarea ha sido identificada como análisis de datos.'
@@ -429,7 +627,9 @@ export class ToolRegistry {
 
     sections.push('');
 
-    sections.push('## Requisitos detectados');
+    sections.push(
+      '## Requisitos detectados'
+    );
 
     sections.push(
       '1. Analizar la especificación recibida.'
@@ -453,10 +653,12 @@ export class ToolRegistry {
 
     sections.push('');
 
-    sections.push('## Resultado');
+    sections.push(
+      '## Resultado'
+    );
 
     sections.push(
-      'El trabajo ha sido procesado por el motor local. '
+      'El trabajo ha sido procesado por el motor local.'
     );
 
     sections.push(
@@ -465,13 +667,20 @@ export class ToolRegistry {
 
     sections.push('');
 
-    sections.push('## Entrada procesada');
-
     sections.push(
-      cleanPrompt.substring(0, 6000)
+      '## Entrada procesada'
     );
 
-    if (systemInstruction) {
+    sections.push(
+      cleanPrompt.substring(
+        0,
+        6000
+      )
+    );
+
+    if (
+      systemInstruction
+    ) {
       sections.push('');
 
       sections.push(
@@ -479,18 +688,23 @@ export class ToolRegistry {
       );
 
       sections.push(
-        this.cleanHtml(systemInstruction).substring(
+        this.cleanHtml(
+          systemInstruction
+        ).substring(
           0,
           2000
         )
       );
     }
 
-    return sections.join('\n');
+    return sections.join(
+      '\n'
+    );
   }
 
   /**
-   * Guarda un entregable y calcula SHA-256.
+   * Guarda un entregable y calcula
+   * su hash SHA-256.
    */
   public saveDeliverableFile(
     filename: string,
@@ -504,25 +718,41 @@ export class ToolRegistry {
     const evidenceDir =
       this.db.getEvidenceDir();
 
-    if (!fs.existsSync(evidenceDir)) {
-      fs.mkdirSync(evidenceDir, {
-        recursive: true,
-      });
+    if (
+      !fs.existsSync(
+        evidenceDir
+      )
+    ) {
+      fs.mkdirSync(
+        evidenceDir,
+        {
+          recursive: true,
+        }
+      );
     }
 
-    const safeFilename = filename
-      .replace(/[^a-zA-Z0-9._-]/g, '_')
-      .substring(0, 180);
+    const safeFilename =
+      filename
+        .replace(
+          /[^a-zA-Z0-9._-]/g,
+          '_'
+        )
+        .substring(
+          0,
+          180
+        );
 
-    const timestamp = Date.now();
+    const timestamp =
+      Date.now();
 
     const finalFilename =
       `${timestamp}-${safeFilename}`;
 
-    const absolutePath = path.join(
-      evidenceDir,
-      finalFilename
-    );
+    const absolutePath =
+      path.join(
+        evidenceDir,
+        finalFilename
+      );
 
     fs.writeFileSync(
       absolutePath,
@@ -531,7 +761,10 @@ export class ToolRegistry {
     );
 
     const sizeBytes =
-      Buffer.byteLength(content, 'utf-8');
+      Buffer.byteLength(
+        content,
+        'utf-8'
+      );
 
     const fileHash =
       crypto
@@ -540,10 +773,14 @@ export class ToolRegistry {
         .digest('hex');
 
     return {
-      filePath: absolutePath,
+      filePath:
+        absolutePath,
+
       relativePath:
         `/data/evidence/${finalFilename}`,
+
       fileHash,
+
       sizeBytes,
     };
   }
