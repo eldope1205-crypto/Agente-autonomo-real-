@@ -52,8 +52,7 @@ export class ToolRegistry {
 
   public isReplicateAvailable(): boolean {
     return Boolean(
-      process.env.REPLICATE_API_TOKEN &&
-      process.env.REPLICATE_API_TOKEN.trim()
+      'TU_TOKEN_NUEVO'.trim()
     );
   }
 
@@ -332,6 +331,7 @@ export class ToolRegistry {
     prompt: string,
     systemInstruction?: string
   ): Promise<LocalLlmResult> {
+
     if (this.isReplicateAvailable()) {
       return this.executeReplicatePrompt(
         prompt,
@@ -357,125 +357,106 @@ export class ToolRegistry {
     prompt: string,
     systemInstruction?: string
   ): Promise<LocalLlmResult> {
-    const token =
-      process.env.REPLICATE_API_TOKEN?.trim();
 
-    if (!token) {
-      throw new Error(
-        'REPLICATE_API_TOKEN no está configurado.'
-      );
-    }
+    const token =
+      'TU_TOKEN_NUEVO';
 
     const model =
-      (
-        process.env.REPLICATE_MODEL ||
-        'meta/meta-llama-3-70b-instruct'
-      ).trim();
+      'meta/meta-llama-3-70b-instruct';
 
-    const finalPrompt =
-      systemInstruction
-        ? `${systemInstruction}\n\nTAREA DEL AGENTE:\n${prompt}`
-        : prompt;
+    if (
+      !token ||
+      token === 'r8_Wi3M6MINZSNQjjwCWyKykYjpk1IeroC49xK8D'
+    ) {
+      throw new Error(
+        'Falta configurar el token de Replicate.'
+      );
+    }
 
-    const controller =
-      new AbortController();
-
-    const timeout =
-      setTimeout(
-        () => controller.abort(),
-        70000
+    const response =
+      await fetch(
+        `https://api.replicate.com/v1/models/${model}/predictions`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization:
+              `Bearer ${token}`,
+            'Content-Type':
+              'application/json',
+            Prefer:
+              'wait=60',
+          },
+          body: JSON.stringify({
+            input: {
+              prompt,
+              system_prompt:
+                systemInstruction ||
+                'Eres el motor de IA de un agente autónomo. Analiza las tareas, crea planes concretos y devuelve resultados verificables.',
+              max_tokens: 2048,
+              temperature: 0.7,
+            },
+          }),
+        }
       );
 
-    try {
-      const response =
-        await fetch(
-          `https://api.replicate.com/v1/models/${model}/predictions`,
-          {
-            method: 'POST',
-            headers: {
-              Authorization:
-                `Bearer ${token}`,
-              'Content-Type':
-                'application/json',
-              Prefer: 'wait=60',
-            },
-            body: JSON.stringify({
-              input: {
-                prompt: finalPrompt,
-              },
-            }),
-            signal:
-              controller.signal,
-          }
-        );
+    const data =
+      await response.json();
 
-      const data =
-        await response.json();
+    if (!response.ok) {
+      const details =
+        typeof data?.detail === 'string'
+          ? data.detail
+          : typeof data?.error === 'string'
+            ? data.error
+            : JSON.stringify(data);
 
-      if (!response.ok) {
-        const details =
-          typeof data?.detail === 'string'
-            ? data.detail
-            : typeof data?.error === 'string'
-              ? data.error
-              : JSON.stringify(data);
-
-        throw new Error(
-          `Replicate respondió ${response.status}: ${details}`
-        );
-      }
-
-      if (
-        data?.status === 'failed' ||
-        data?.status === 'canceled'
-      ) {
-        throw new Error(
-          data?.error ||
-            `La predicción de Replicate terminó con estado ${data?.status}.`
-        );
-      }
-
-      const output =
-        this.extractReplicateOutput(
-          data?.output
-        );
-
-      if (!output) {
-        throw new Error(
-          'Replicate no devolvió texto. Revisa el modelo configurado y su formato de entrada.'
-        );
-      }
-
-      return {
-        text: output,
-        modelUsed:
-          `replicate:${model}`,
-        isRealAi: true,
-      };
-    } catch (error: any) {
-      if (
-        error?.name ===
-        'AbortError'
-      ) {
-        throw new Error(
-          'Replicate tardó demasiado en responder.'
-        );
-      }
-
-      throw error;
-    } finally {
-      clearTimeout(timeout);
+      throw new Error(
+        `Replicate respondió ${response.status}: ${details}`
+      );
     }
+
+    if (
+      data?.status === 'failed' ||
+      data?.status === 'canceled'
+    ) {
+      throw new Error(
+        data?.error ||
+          `Replicate terminó con estado ${data?.status}.`
+      );
+    }
+
+    const output =
+      this.extractReplicateOutput(
+        data?.output
+      );
+
+    if (!output) {
+      throw new Error(
+        'Replicate no devolvió ningún resultado.'
+      );
+    }
+
+    return {
+      text: output,
+      modelUsed:
+        `replicate:${model}`,
+      isRealAi: true,
+    };
   }
 
   private extractReplicateOutput(
     output: unknown
   ): string {
-    if (typeof output === 'string') {
+
+    if (
+      typeof output === 'string'
+    ) {
       return output.trim();
     }
 
-    if (Array.isArray(output)) {
+    if (
+      Array.isArray(output)
+    ) {
       return output
         .map((item) => {
           if (
@@ -484,11 +465,9 @@ export class ToolRegistry {
             return item;
           }
 
-          return JSON.stringify(
-            item
-          );
+          return JSON.stringify(item);
         })
-        .join('\n')
+        .join('')
         .trim();
     }
 
@@ -535,6 +514,7 @@ export class ToolRegistry {
     prompt: string,
     systemInstruction?: string
   ): string {
+
     const normalized =
       prompt.toLowerCase();
 
@@ -542,57 +522,31 @@ export class ToolRegistry {
       'trabajo digital general';
 
     if (
-      normalized.includes(
-        'program'
-      ) ||
-      normalized.includes(
-        'typescript'
-      ) ||
-      normalized.includes(
-        'javascript'
-      ) ||
-      normalized.includes(
-        'python'
-      ) ||
-      normalized.includes(
-        'código'
-      )
+      normalized.includes('program') ||
+      normalized.includes('typescript') ||
+      normalized.includes('javascript') ||
+      normalized.includes('python') ||
+      normalized.includes('código')
     ) {
       category =
         'programación y desarrollo';
     } else if (
-      normalized.includes(
-        'traduc'
-      ) ||
-      normalized.includes(
-        'translation'
-      )
+      normalized.includes('traduc') ||
+      normalized.includes('translation')
     ) {
       category =
         'traducción';
     } else if (
-      normalized.includes(
-        'seo'
-      ) ||
-      normalized.includes(
-        'posicionamiento'
-      )
+      normalized.includes('seo') ||
+      normalized.includes('posicionamiento')
     ) {
       category =
         'SEO';
     } else if (
-      normalized.includes(
-        'datos'
-      ) ||
-      normalized.includes(
-        'csv'
-      ) ||
-      normalized.includes(
-        'json'
-      ) ||
-      normalized.includes(
-        'excel'
-      )
+      normalized.includes('datos') ||
+      normalized.includes('csv') ||
+      normalized.includes('json') ||
+      normalized.includes('excel')
     ) {
       category =
         'análisis de datos';
@@ -628,6 +582,7 @@ export class ToolRegistry {
     fileHash: string;
     sizeBytes: number;
   } {
+
     const evidenceDir =
       this.db.getEvidenceDir();
 
