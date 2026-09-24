@@ -52,7 +52,7 @@ export class ToolRegistry {
 
   public isReplicateAvailable(): boolean {
     return Boolean(
-      process.env.REPLICATE_API_TOKEN?.trim()
+      process.env.r8_W9ASlCtInPYPZmZY4lIcCvVeFlLbbif3OcEYn?.trim()
     );
   }
 
